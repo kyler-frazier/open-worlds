@@ -1,0 +1,14 @@
+# Secrets / local config
+.env
+.env.*
+!.env.example
+
+# TLS material
+edge/certs/*
+!edge/certs/.gitkeep
+
+# Python bytecode cache (e.g. from smoke-compiling the offline placeholder)
+__pycache__/
+*.pyc
+
+.DS_Store

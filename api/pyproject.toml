@@ -1,0 +1,99 @@
+[project]
+name = "open-worlds"
+version = "0.1.0"
+description = "Control-plane API and worker for the multi-game server management platform"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy>=2.0.36",
+    "psycopg[binary]>=3.2",
+    "alembic>=1.14",
+    "authlib>=1.4",
+    "httpx2>=2.16",
+    "itsdangerous>=2.2",
+    "cryptography>=44.0",
+    "docker>=7.1",
+    "apscheduler>=3.11",
+    "prometheus-client>=0.21",
+    "prometheus-fastapi-instrumentator>=7.0",
+    "python-multipart>=0.0.20",
+    "google-api-python-client>=2.150",
+    "google-auth>=2.36",
+]
+
+[project.urls]
+Homepage = "https://github.com/kyler-frazier/open-worlds"
+Documentation = "https://github.com/kyler-frazier/open-worlds/blob/main/deploy/README.md"
+Issues = "https://github.com/kyler-frazier/open-worlds/issues"
+Changelog = "https://github.com/kyler-frazier/open-worlds/blob/main/CHANGELOG.md"
+
+[project.scripts]
+platform-api = "open_worlds.api.__main__:main"
+platform-worker = "open_worlds.worker.__main__:main"
+platform-rotate-keys = "open_worlds.rotate_keys:main"
+
+# Games register here, built-in ones included: see common/games/__init__.py.
+[project.entry-points."open_worlds.games"]
+minecraft = "open_worlds.common.games.minecraft:MinecraftAdapter"
+palworld = "open_worlds.common.games.palworld:PalworldAdapter"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "ruff>=0.9",
+    "vulture>=2.16",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/open_worlds"]
+
+[tool.pytest.ini_options]
+# "." is needed as well as "src": three route tests import their shared helpers
+# as `tests.conftest_routes`, which only resolves with the repo root on sys.path.
+# `python -m pytest` injects the working directory and hid this; the `pytest`
+# console script CI runs does not.
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.mypy]
+files = ["src"]
+
+# No type information published for these.
+[[tool.mypy.overrides]]
+module = ["apscheduler.*", "authlib.*", "docker.*", "googleapiclient.*"]
+ignore_missing_imports = true
+
+# Below 80% confidence it guesses about code that FastAPI, Pydantic and
+# SQLAlchemy reach by name; at 80 and up it is unused imports and dead branches.
+[tool.vulture]
+paths = ["src"]
+min_confidence = 80
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# `str, Enum` is intentional for stable, JSON-friendly enum values.
+ignore = ["UP042"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection markers are meant to be used as defaults.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.File", "fastapi.Query", "fastapi.Body"]
+
+[tool.ruff.lint.per-file-ignores]
+# Alembic migrations favour explicit, wide column definitions.
+"migrations/*" = ["E501"]

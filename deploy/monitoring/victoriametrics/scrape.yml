@@ -1,0 +1,53 @@
+# VictoriaMetrics scrape config (pull model).
+#
+# VictoriaMetrics scrapes each service's /metrics endpoint directly over the
+# private Docker networks; there is no Prometheus and nothing pushes to VM.
+# Read by victoria-metrics via -promscrape.config.
+
+global:
+  # 60s, not 15s: the dashboards and alerts look at 5m+ windows, and on an
+  # idle host every scrape wakes the CPU and each target.
+  scrape_interval: 60s
+
+scrape_configs:
+  - job_name: api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]
+
+  - job_name: worker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["worker:8001"]
+
+  # Every world operation goes through this, so it going quiet means world
+  # lifecycle is broken even though api and worker still answer.
+  - job_name: world-manager
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["world-manager:8000"]
+
+  # A dead internal-api drops wakes silently: pal-waker logs "control plane
+  # unreachable" and the player's connection simply does nothing.
+  - job_name: internal-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["internal-api:8000"]
+
+  - job_name: mc-router
+    metrics_path: /metrics
+    static_configs:
+      # mc-router binds its API to its static routerapi address only (see
+      # docker-compose.yml); target that address rather than the name, which
+      # would also resolve on networks the API does not listen on.
+      - targets: ["172.30.0.3:26660"]
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  # The guards' refusals and the dns-observer's health, from its report.
+  - job_name: egress-exporter
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["egress-exporter:9109"]

@@ -1,0 +1,74 @@
+# Minecraft's edge: mc-router, and the placeholder behind it.
+#
+# Included by ../../docker-compose.yml behind the "minecraft" profile, which
+# must be on for the game to be offered. TCP ${MC_ROUTER_PORT:-25565} on the
+# host serves every world, routed by the hostname in the handshake. Networks
+# are the main file's; build contexts are relative to this file.
+
+services:
+  mc-router:
+    profiles: ["minecraft"]
+    # Pinned by digest; bump deliberately.
+    image: itzg/mc-router:1.55.0@sha256:0e89cb4e8e1e73f9ccec4211fab5c6b8336bd2768b82b7cca25c6290ed5a2f4a
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 128m
+    pids_limit: 128
+    environment:
+      # No Docker: the worker publishes routes and sleeps idle worlds, and the
+      # placeholder wakes them. mc-router is only a hostname -> TCP router.
+      IN_DOCKER: "false"
+      # Every hostname without a route (any world not RUNNING, and typos).
+      DEFAULT: offline-placeholder:25565
+      METRICS_BACKEND: prometheus
+      # The route API has no authentication, so it binds only to this
+      # container's address on the private `routerapi` network; otherwise a mod
+      # in one world could re-point another world's hostname at itself.
+      API_BINDING: 172.30.0.3:26660
+    ports:
+      - "${MC_ROUTER_PORT:-25565}:25565"
+    networks:
+      routerapi:
+        ipv4_address: 172.30.0.3
+      games:
+
+  # Stand-in backend for every Minecraft world that is not RUNNING: a MOTD for
+  # its state, and wake-on-join. An OFF world stays off until its owner turns
+  # it on.
+  offline-placeholder:
+    profiles: ["minecraft"]
+    build:
+      context: ./offline-placeholder
+      dockerfile: Dockerfile
+    image: mc-offline-placeholder:latest
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # A thread per connection, capped by its MAX_CONNECTIONS (256), plus one
+    # per relayed player.
+    mem_limit: 256m
+    pids_limit: 768
+    environment:
+      # Points at this deployment's own management URL.
+      MOTD: "This world is OFF — start it at ${PLATFORM_WEB_ORIGIN}, then reconnect."
+      # Sleeping and stopping worlds get messages defaulted in server.py. ERROR
+      # does not wake on a join, so it points at the web UI like OFF.
+      ERROR_MOTD: "This world stopped unexpectedly — turn it back on at ${PLATFORM_WEB_ORIGIN}."
+      KICK_MESSAGE: "This world is off.\nStart it at ${PLATFORM_WEB_ORIGIN}, then reconnect."
+      # Tells worlds from deleted or bogus hosts, whose connection is dropped.
+      ROUTE_STATUS_URL: http://internal-api:8000/api/internal/route-status
+      ROUTE_STATUS_SECRET: ${PLATFORM_INTERNAL_SECRET:?set PLATFORM_INTERNAL_SECRET in .env}
+      # A join holds the player, asks for a wake and relays once the world
+      # answers. A status ping never wakes anything.
+      WAKE_URL: http://internal-api:8000/api/internal/wake # gitleaks:allow (a URL, not a key)
+      # Long enough for a cold boot; the client's patience is the real ceiling.
+      WAKE_WAIT_SECONDS: ${MC_WAKE_WAIT_SECONDS:-180}
+    depends_on:
+      - internal-api
+    networks:
+      - games

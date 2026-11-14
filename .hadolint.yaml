@@ -1,0 +1,8 @@
+# Info-level findings (consolidating RUNs, non-numeric USER) are style
+# preferences, so only warnings and errors fail the check.
+failure-threshold: warning
+ignored:
+  # Alpine drops old package versions from its mirrors, so a pinned apk
+  # package breaks the build within weeks. The base image tag is the pin, and
+  # Dependabot keeps it current.
+  - DL3018

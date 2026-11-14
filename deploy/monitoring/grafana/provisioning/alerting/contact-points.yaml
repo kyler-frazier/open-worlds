@@ -1,0 +1,28 @@
+apiVersion: 1
+
+# Where an alert goes. Provisioned rather than clicked so it survives a rebuild
+# of the Grafana volume, and so the destination is reviewable in git.
+#
+# Discord rather than email because the webhook is the whole credential: no
+# SMTP, no app password, no 2FA dance, and it lands where the players already
+# are. Grafana speaks to Discord through an incoming webhook, not a bot -- there
+# is no token and no OAuth involved.
+#
+# The URL is a secret: anyone holding it can post to the channel as this
+# integration. It stays in .env and is expanded here.
+contactPoints:
+  - orgId: 1
+    name: platform-discord
+    receivers:
+      - uid: platform-discord
+        type: discord
+        settings:
+          url: ${ALERT_DISCORD_WEBHOOK_URL}
+          # The webhook's own name and avatar are set in Discord; overriding the
+          # username here keeps it recognisable even if the webhook is reused.
+          use_discord_username: true
+          title: '{{ template "default.title" . }}'
+          message: |
+            {{ range .Alerts }}**{{ .Annotations.summary }}**
+            {{ .Annotations.description }}
+            {{ end }}

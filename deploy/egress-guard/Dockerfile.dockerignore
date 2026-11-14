@@ -1,0 +1,7 @@
+# Only what the guard image copies. Each game's policy, not the rest of games/.
+*
+!egress-guard/trust.py
+!dns-observer/resolver.py
+!egress-guard/guard.py
+!egress-guard/webgate.py
+!games/*/egress.py

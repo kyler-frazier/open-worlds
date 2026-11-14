@@ -1,0 +1,9 @@
+# Place TLS certificates here (mounted read-only into the edge container):
+#   fullchain.pem   — certificate chain
+#   privkey.pem     — private key
+#
+# For games.example.com, e.g. via certbot:
+#   certbot certonly --standalone -d games.example.com
+# then copy/symlink the resulting fullchain.pem and privkey.pem into this dir.
+#
+# This directory is git-ignored except for this file.

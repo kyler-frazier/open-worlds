@@ -1,0 +1,64 @@
+# The game server images are pinned by digest in Python, where Dependabot
+# cannot see them, and they take player traffic. Weekly: report a newer
+# release and the pinned images' fixable HIGH/CRITICAL findings in one issue,
+# so a bump is a decision someone makes rather than one nobody knows is due.
+name: game-images
+
+on:
+  schedule:
+    - cron: "17 14 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: Game images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Newer releases and scan
+        id: check
+        run: |
+          set +e
+          {
+            echo '## Releases'
+            echo '```'
+            deploy/scripts/game-images.sh --check
+            echo "rc=$?" >"$RUNNER_TEMP/rc"
+            echo '```'
+            echo '## Fixable HIGH/CRITICAL (trivy)'
+            for img in $(deploy/scripts/game-images.sh); do
+              echo "### ${img%@*}"
+              echo '```'
+              # :latest on purpose, as in scripts/security-scan.sh: the
+              # scanner should carry the freshest vulnerability database.
+              docker run --rm aquasec/trivy:latest image --quiet --scanners vuln \
+                --severity HIGH,CRITICAL --ignore-unfixed --format json "$img" |
+                jq -r '.Results[]? | select(.Vulnerabilities)
+                  | "\(.Target): \([.Vulnerabilities[] | select(.Severity == "CRITICAL")] | length) critical, \([.Vulnerabilities[] | select(.Severity == "HIGH")] | length) high"'
+              echo '```'
+            done
+          } >"$RUNNER_TEMP/report.md"
+          cat "$RUNNER_TEMP/report.md" >>"$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/rc" >>"$GITHUB_OUTPUT"
+
+      # One open issue, updated in place, while a newer release is out.
+      - name: Open or update the issue
+        if: steps.check.outputs.rc != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          title="Game server image update available"
+          n="$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number')"
+          if [ -n "$n" ]; then
+            gh issue edit "$n" --body-file "$RUNNER_TEMP/report.md"
+          else
+            gh issue create --title "$title" --body-file "$RUNNER_TEMP/report.md"
+          fi

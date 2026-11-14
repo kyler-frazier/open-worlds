@@ -1,0 +1,41 @@
+# Linters for the files that are not one package's code: the workflows
+# themselves and every Dockerfile.
+name: lint
+
+# Every push and PR, with no path filter: the job is a required check, and a
+# required check that never runs would block every PR that skips it.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Script injection, over-broad tokens and unpinned actions. --offline
+      # skips the audits that query GitHub, so no token is needed.
+      - name: Workflows
+        run: |
+          docker run --rm -v "$PWD:/r" -w /r \
+            ghcr.io/zizmorcore/zizmor:1.31.1@sha256:42d409dbb851d4c5d35a058cf042b828bea1e3f2884378c526eb0974780e18d9 \
+            --offline .github/workflows
+
+      # Settings in .hadolint.yaml.
+      - name: Dockerfiles
+        run: |
+          docker run --rm -v "$PWD:/r" -w /r \
+            hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d \
+            hadolint $(git ls-files '*Dockerfile')

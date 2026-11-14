@@ -1,0 +1,84 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. A clear report with a way to reproduce it is
+        the fastest way to a fix. Security problems go through SECURITY.md, not an issue.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you submit
+      options:
+        - label: >-
+            I searched [existing issues](https://github.com/kyler-frazier/open-worlds/issues?q=is%3Aissue) and this hasn't been reported.
+          required: true
+        - label: This report covers a single problem.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the problem, and what you expected to happen instead.
+      placeholder: |
+        Turning a sleeping Palworld world off left it reading "Stopping" for ten minutes.
+        I expected it to read Off within a few seconds.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps that shows the problem.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: dropdown
+    id: game
+    attributes:
+      label: Game
+      options:
+        - Not game-specific
+        - Minecraft
+        - Palworld
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The commit or release you run (`git rev-parse --short HEAD` in your checkout).
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Host
+      description: OS and Docker Engine version (`docker version --format '{{.Server.Version}}'`).
+      placeholder: e.g. Ubuntu 26.04, Docker 29.9
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >-
+        Relevant lines from `docker compose logs <service>` in deploy/. Remove secrets, addresses
+        and anything else private first. Pasted as text, so no need for backticks.
+      render: text
+  - type: checkboxes
+    id: ai
+    attributes:
+      label: AI assistance
+      description: >-
+        AI tools are welcome, but a person needs to stand behind every report. See
+        [our AI policy](https://github.com/kyler-frazier/open-worlds/blob/main/CONTRIBUTING.md#using-ai-tools).
+      options:
+        - label: >-
+            If I used AI to help write this, I reviewed and edited it, and I reproduced the problem
+            myself.
+          required: true

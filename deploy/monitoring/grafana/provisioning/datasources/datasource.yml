@@ -1,0 +1,12 @@
+apiVersion: 1
+
+datasources:
+  - name: VictoriaMetrics
+    # Fixed so provisioned alert rules can reference it; Grafana would
+    # otherwise generate one and the rules would point at nothing.
+    uid: victoriametrics
+    type: prometheus
+    access: proxy
+    url: http://victoriametrics:8428
+    isDefault: true
+    editable: false

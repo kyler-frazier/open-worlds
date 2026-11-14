@@ -1,0 +1,1774 @@
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-2: #1c2330;
+  --border: #2a3240;
+  --text: #e6edf3;
+  --muted: #8b98a9;
+  --primary: #3fb950;
+  --primary-hover: #46c95a;
+  --danger: #f85149;
+  --accent: #58a6ff;
+  --radius: 12px;
+  --shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  /* The glow is painted once over a flat base: no-repeat, so a long page does
+     not restart the gradient, and background-color covers below it. */
+  background-color: var(--bg);
+  background-image: radial-gradient(
+    1200px 600px at 70% -10%,
+    #12233a 0%,
+    transparent 60%
+  );
+  background-repeat: no-repeat;
+  color: var(--text);
+  font-family:
+    "Inter",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 0.8rem;
+}
+.mono {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* Layout */
+.center-screen {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.page {
+  min-height: 100%;
+}
+
+.content {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+
+.content-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  gap: 12px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 18px;
+}
+
+/* Header */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(13, 17, 23, 0.7);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.logo-sm {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  display: block;
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 12px;
+  /* Without this the actions cannot shrink and shove themselves off the right
+     edge on a narrow screen -- flex items default to min-width:auto. */
+  min-width: 0;
+}
+.user-email {
+  font-size: 0.85rem;
+}
+
+/* --- account menu ------------------------------------------------------- */
+.user-menu {
+  position: relative;
+  min-width: 0;
+}
+.user-menu-trigger {
+  /* Without this a tap paints the browser's default highlight over the
+     element's square bounding box, ignoring border-radius -- which reads as
+     "the background div lit up" rather than the button. The :hover and
+     [aria-expanded] rules below are the intended feedback. */
+  -webkit-tap-highlight-color: transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 46vw;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.user-menu-trigger:hover,
+.user-menu-trigger[aria-expanded="true"] {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.user-menu-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-menu-caret {
+  flex-shrink: 0;
+  font-size: 0.7em;
+  opacity: 0.7;
+}
+.user-menu-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 15rem;
+  max-width: min(20rem, calc(100vw - 32px));
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  z-index: 20;
+}
+.user-menu-who {
+  padding: 6px 10px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+.user-menu-drive {
+  margin-top: 8px;
+  /* The pill is inline-sized; this keeps it hugging its label rather than
+     stretching across the menu. */
+  display: flex;
+}
+.user-menu-item {
+  display: block;
+  width: 100%;
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.user-menu-item:hover {
+  background: var(--surface-2);
+}
+.user-menu-item-danger {
+  color: #e8a0ab;
+}
+
+/* Cards */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+
+.login-card {
+  width: 380px;
+  /* A fixed width with no ceiling ran off the side of any phone narrower than
+     380 plus the card's own padding -- the sign-in button included. */
+  max-width: 100%;
+  text-align: center;
+}
+.login-card h1 {
+  margin: 8px 0;
+}
+.logo {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+}
+
+.world-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  /* Grid items default to min-width:auto, so the card could not shrink below
+     the widest unbreakable string inside it -- the owner's email. That grew
+     the track itself, which is why every card overflowed to the right by the
+     same amount rather than just the text spilling. */
+  min-width: 0;
+}
+.world-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.world-head-main {
+  /* Without this the connect address cannot shrink and pushes the status
+     corner past the card edge on narrow screens. */
+  min-width: 0;
+  /* `anywhere`, not `break-word`: both wrap a long token, but only `anywhere`
+     also shrinks the min-content width, which is the measurement the grid
+     track is sized from. `break-word` would still leave the card too wide. */
+  overflow-wrap: anywhere;
+  flex: 1 1 auto;
+}
+.world-corner {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.world-players {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.world-players strong {
+  color: var(--text);
+}
+@media (max-width: 420px) {
+  /* "players" is redundant once the row is tight; the tooltip still says it. */
+  .world-players-label {
+    display: none;
+  }
+}
+.world-head h3 {
+  margin: 0 0 4px;
+}
+.world-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tag {
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.tag-game {
+  color: #c4b5fd;
+  background: rgba(167, 139, 250, 0.1);
+  border-color: rgba(167, 139, 250, 0.28);
+}
+.tag-type {
+  color: #7fd4c1;
+  background: rgba(45, 212, 191, 0.1);
+  border-color: rgba(45, 212, 191, 0.26);
+}
+.tag-version {
+  color: #e0c184;
+  background: rgba(251, 191, 36, 0.1);
+  border-color: rgba(251, 191, 36, 0.26);
+}
+.tag-memory {
+  color: #8fc6ea;
+  background: rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.26);
+}
+.tag-lock {
+  color: #e8a0ab;
+  background: rgba(251, 113, 133, 0.1);
+  border-color: rgba(251, 113, 133, 0.26);
+}
+.tag-warn {
+  color: #f0a35e;
+  background: rgba(240, 136, 62, 0.1);
+  border-color: rgba(240, 136, 62, 0.3);
+}
+.tag-accent {
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.1);
+  border-color: rgba(88, 166, 255, 0.4);
+}
+.world-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+/* Trailing corner. Backups and deletion live behind Edit now, so it is a way
+   in rather than a peer of the power controls, and it should not sit in the
+   path of someone reaching for "Turn off". */
+.world-edit {
+  margin-left: auto;
+  /* A single glyph in a button sized for a word reads as undersized and gives
+     a cramped tap target, so set both explicitly rather than letting the text
+     metrics decide. Square, and comfortably past the 44px touch guidance at
+     the padding the ghost button already carries. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Two classes, not one. `.btn` is defined after `.world-edit` and sets
+   `padding: 8px 14px`; at equal specificity the later rule wins, so a bare
+   `.world-edit { padding: 0 }` silently lost. With border-box that left a
+   content box 6px wide -- 36 minus 28 of padding and 2 of border -- and the
+   icon below is a percentage of exactly that, which is how a 36px button
+   ended up with a 5px gear in it. */
+.btn.world-edit {
+  /* A fixed square, padding removed, so the icon sets its own size instead of
+     being whatever is left over inside the button's text box. 2.25rem is the
+     height .btn's padding gives the text buttons beside it, so the row still
+     lines up. */
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+}
+.world-edit svg {
+  /* Nearly the whole button. The gear's own teeth leave a little visual
+     margin inside its bounding box, so it reads smaller than its measurements
+     and can afford to sit closer to the edge than a glyph could. */
+  width: 86%;
+  height: 86%;
+  display: block;
+  transition: transform 150ms ease;
+}
+/* Turning the gear on hover is the whole affordance now that the word "Edit"
+   is gone -- it says "this is a control" without adding a label back. 45deg
+   is one tooth of an eight-tooth gear, so it lands looking like a gear again
+   rather than stopping at an angle. */
+.world-edit:hover:not(:disabled) svg {
+  transform: rotate(45deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .world-edit svg {
+    transition: none;
+  }
+  .world-edit:hover:not(:disabled) svg {
+    transform: none;
+  }
+}
+
+/* Buttons */
+.btn {
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border 0.15s,
+    opacity 0.15s;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+.btn-block {
+  width: 100%;
+  justify-content: center;
+  margin-top: 8px;
+}
+.btn-primary {
+  background: var(--primary);
+  color: #0b1f10;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+.btn-secondary {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.btn-ghost:hover:not(:disabled) {
+  color: var(--text);
+}
+.btn-danger {
+  background: transparent;
+  border-color: rgba(248, 81, 73, 0.4);
+  color: var(--danger);
+}
+.btn-danger:hover:not(:disabled) {
+  background: rgba(248, 81, 73, 0.12);
+}
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.badge .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.badge-running {
+  color: var(--primary);
+  background: rgba(63, 185, 80, 0.12);
+}
+.badge-sleeping {
+  color: #d29922;
+  background: rgba(210, 153, 34, 0.12);
+}
+.badge-off {
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.badge-error {
+  color: var(--danger);
+  background: rgba(248, 81, 73, 0.12);
+}
+.badge-deleting,
+.badge-stopping,
+/* Starting shares the transitional blue rather than the running green: the
+   container is up but the world is not joinable yet, and green would say
+   otherwise. */
+.badge-starting {
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.12);
+}
+.badge-starting .dot,
+.badge-stopping .dot {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+.badge-server-side {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  color: var(--primary);
+  background: rgba(63, 185, 80, 0.12);
+}
+
+.pill {
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.pill-ok {
+  color: var(--primary);
+  background: rgba(63, 185, 80, 0.12);
+}
+
+/* Notices */
+.notice {
+  background: rgba(88, 166, 255, 0.1);
+  border: 1px solid rgba(88, 166, 255, 0.3);
+  color: var(--text);
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+}
+
+/* Something the user needs to act on, not just an offer. */
+.notice-warn {
+  background: rgba(255, 176, 32, 0.12);
+  border-color: rgba(255, 176, 32, 0.45);
+}
+.notice a {
+  color: var(--accent);
+}
+.risk-banner {
+  background: rgba(210, 153, 34, 0.12);
+  border: 1px solid rgba(210, 153, 34, 0.4);
+  color: var(--text);
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+}
+.risk-banner ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+.change-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.9rem;
+}
+.change-list .change-label {
+  color: var(--muted);
+}
+.modal-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
+.field-label {
+  font-weight: 600;
+  margin-top: 4px;
+}
+.content-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.content-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+}
+.error-banner {
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  color: var(--danger);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+/* Forms */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-align: left;
+}
+.form label,
+.add-user-form input {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+input,
+select {
+  font: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 9px 11px;
+  border-radius: 8px;
+  outline: none;
+}
+input:focus,
+select:focus {
+  border-color: var(--accent);
+}
+.hint {
+  font-size: 0.75rem;
+}
+.hint.error {
+  color: var(--danger);
+}
+
+/* Join password on a world card: label, masked value, reveal toggle. */
+.world-password {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.world-password code {
+  /* Masked and revealed values differ in width; a min-width keeps the toggle
+     from jumping sideways as it changes. */
+  min-width: 8ch;
+}
+
+/* Password input paired with its reveal/hide toggle. The input takes the
+   remaining width so the toggle stays a constant size as the field grows. */
+.secret-field {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.secret-field input {
+  flex: 1;
+  min-width: 0;
+}
+.secret-field .btn {
+  flex: none;
+}
+/* Read mode: the saved password is there to be read and copied, not typed
+   over, so it should not look like an empty box waiting for input. */
+.secret-field input[readonly] {
+  background: var(--bg);
+  color: var(--muted);
+  cursor: default;
+}
+
+/* Modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  /* minmax(0, 1fr), not the implicit `auto`. An auto track sizes itself to
+     its item, so a 620px modal made a 620px track and `max-width: 100%` on
+     the modal resolved against that -- it could never clamp, and the modal
+     ran off the side of a phone with its own buttons out of reach. */
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  padding: 24px;
+  z-index: 50;
+}
+.modal {
+  width: 520px;
+  max-width: 100%;
+  /* Never taller than the viewport, and scroll internally when the content
+     doesn't fit. Without this a tall modal (the create form once a game with a
+     join password is picked, or the edit form) overflowed the page with no way
+     to scroll, putting its own Save/Cancel buttons out of reach.
+     The 48px is the backdrop's 24px top+bottom padding. */
+  max-height: calc(100vh - 48px);
+  /* dvh accounts for mobile browser chrome; ignored where unsupported, so the
+     vh line above stays the fallback. */
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+}
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* Tables */
+/* A five-column table with a 21-digit Google sub and two buttons in it will
+   not fit a phone at any font size. Scroll it rather than crushing the
+   columns or letting it run off the side of the page. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Room for the scrollbar so it does not sit on top of the last row. */
+  padding-bottom: 4px;
+}
+.table-scroll > .data-table {
+  /* Size to the content, but never narrower than the space available: a table
+     that fits looks exactly as it always did, and one that does not grows and
+     scrolls inside the wrapper instead of running off the page. Preferred over
+     a fixed min-width, which would force a scrollbar onto tables that fit. */
+  width: max-content;
+  min-width: 100%;
+}
+
+.data-table,
+.backups-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+  font-size: 0.85rem;
+}
+.data-table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.data-table td,
+.backups-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.backups {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.backups-caption {
+  margin-bottom: 4px;
+  line-height: 1.5;
+}
+.backups-caption code {
+  font-size: 0.85em;
+}
+.backup-failed {
+  color: var(--danger);
+  cursor: help;
+}
+.backup-actions {
+  text-align: right;
+}
+.toggle-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.toggle-row input {
+  width: auto;
+  margin: 0;
+  flex: none;
+}
+/* `.form label` forces a column layout for fields; toggle rows must stay inline. */
+.form .toggle-row {
+  flex-direction: row;
+  align-items: center;
+}
+.btn-link-danger {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--danger);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85em;
+}
+.btn-link-danger:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.btn-link-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.add-user-form {
+  display: flex;
+  gap: 10px;
+  margin: 12px 0;
+}
+.add-user-form input {
+  flex: 1;
+}
+.admin-section {
+  margin-top: 32px;
+}
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 520px;
+  margin-top: 12px;
+  text-align: left;
+}
+.settings-form .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.sub-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 16px 0;
+}
+.sub-box code {
+  flex: 1;
+  word-break: break-all;
+  text-align: left;
+  font-size: 0.85rem;
+}
+
+.empty {
+  text-align: center;
+  padding: 48px;
+}
+.fineprint {
+  font-size: 0.75rem;
+  margin-top: 16px;
+}
+
+/* Spinner */
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 40px auto;
+}
+.spinner-sm {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+  margin: 0;
+}
+.inline-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+.modal-sm {
+  max-width: 460px;
+}
+.confirm-message {
+  white-space: pre-wrap;
+  margin: 0 0 8px;
+}
+.confirm-subdomain {
+  margin: 4px 0;
+  font-weight: 600;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Content head actions */
+.content-head-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* Webview warning (login) */
+.webview-warning {
+  background: rgba(210, 153, 34, 0.1);
+  border: 1px solid rgba(210, 153, 34, 0.35);
+  color: var(--text);
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  margin: 16px 0;
+  text-align: left;
+}
+.webview-warning strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #e3b341;
+}
+.webview-warning p {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+/* Info tooltip */
+.world-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  cursor: help;
+  outline: none;
+}
+.info-tip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1;
+}
+.info-tip:hover .info-tip-icon,
+.info-tip:focus .info-tip-icon {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.info-tip-bubble {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: 260px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text);
+  text-align: left;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease,
+    visibility 0.12s;
+}
+.info-tip-bubble strong {
+  color: var(--text);
+}
+.info-tip:hover .info-tip-bubble,
+.info-tip:focus .info-tip-bubble {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* Tabbed edit modal */
+.modal-wide {
+  width: 620px;
+}
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.modal-head h2 {
+  margin: 0;
+}
+.modal-subtitle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+  min-width: 0;
+}
+.modal-subtitle > span:first-child {
+  font-weight: 600;
+  color: var(--text);
+}
+.modal-head-right {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 1.5rem;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.modal-close:hover {
+  color: var(--text);
+}
+.form-row-2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* Add-ons picker (multi-select dropdown + staged list) */
+.content-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.content-dropdown {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.content-dropdown > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 9px 11px;
+  font-size: 0.85rem;
+  color: var(--text);
+  user-select: none;
+}
+.content-dropdown > summary::-webkit-details-marker {
+  display: none;
+}
+.content-dropdown > summary::after {
+  content: "▾";
+  float: right;
+  color: var(--muted);
+}
+.content-dropdown[open] > summary::after {
+  content: "▴";
+}
+.content-dropdown-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  padding: 8px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.installed-list {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.installed-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+.installed-name {
+  flex: 1;
+}
+.installed-remove {
+  margin-left: auto;
+}
+
+/* Backups modal */
+.backups-scroll {
+  max-height: 320px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+/* Import source tabs */
+/* Wraps rather than overflowing the modal on a phone. */
+.source-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+}
+/* The tab row is a top-level selector for the whole modal, so it needs to
+   read as separated from the pane it controls rather than stuck to it. */
+.modal > .source-tabs {
+  margin-bottom: 16px;
+}
+.source-tabs .tab {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.source-tabs .tab-active {
+  background: var(--surface-2);
+  color: var(--text);
+}
+input[type="file"] {
+  padding: 8px;
+  cursor: pointer;
+}
+
+/* Several small actions in one table cell. */
+.row-actions {
+  white-space: nowrap;
+}
+.row-actions .btn + .btn {
+  margin-left: 6px;
+}
+
+/* Untracked Drive archives, collapsed under the tracked backup list. */
+.drive-archives {
+  margin-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.6rem;
+}
+
+.accordion-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.accordion-toggle:hover {
+  text-decoration: underline;
+}
+
+.accordion-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  /* The section opens with a border-top and had no closing edge, so the rule
+     read as enclosing everything after it -- error banner, progress line and
+     the modal's own buttons included. A left rule that stops where the body
+     does gives the section a visible extent instead of just a start. */
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+}
+
+/* --- Card tint by status -------------------------------------------------
+ *
+ * The same colours as the badges (green joinable, amber asleep, blue in
+ * transition, red faulted), low-alpha over --surface so cards still read as
+ * cards. The left edge carries most of the signal. Colour is never the only
+ * channel: the badge states the status in words.
+ */
+.world-card {
+  border-width: 2px;
+  border-left: 5px solid transparent;
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease;
+}
+
+/* Up and joinable -- the state worth spotting instantly. */
+/* At this strength the global muted colour falls under AA (3.8:1), so --muted
+   is lightened for this card only. On the tinted surface:
+     body  #e6edf3  9.5:1
+     muted #a3b0c0  5.1:1 */
+.world-card--ready {
+  --muted: #a3b0c0;
+  background:
+    linear-gradient(0deg, rgba(63, 185, 80, 0.25), rgba(63, 185, 80, 0.25)),
+    var(--surface);
+  border-color: rgba(63, 185, 80, 0.38);
+  border-left-color: var(--primary);
+}
+
+/* Booting: the container is up but nobody can join yet, so deliberately not
+   green -- claiming joinable early is what makes a first join fail oddly. */
+.world-card--starting,
+.world-card--stopping {
+  background:
+    linear-gradient(0deg, rgba(88, 166, 255, 0.06), rgba(88, 166, 255, 0.06)),
+    var(--surface);
+  border-color: rgba(88, 166, 255, 0.24);
+  border-left-color: var(--accent);
+}
+
+.world-card--sleeping {
+  background:
+    linear-gradient(0deg, rgba(210, 153, 34, 0.05), rgba(210, 153, 34, 0.05)),
+    var(--surface);
+  border-color: rgba(210, 153, 34, 0.22);
+  border-left-color: #d29922;
+}
+
+.world-card--error,
+.world-card--unresponsive {
+  background:
+    linear-gradient(0deg, rgba(248, 81, 73, 0.06), rgba(248, 81, 73, 0.06)),
+    var(--surface);
+  border-color: rgba(248, 81, 73, 0.28);
+  border-left-color: var(--danger);
+}
+
+/* Off and deleting stay the plain card: absence of colour is the signal, and
+   tinting everything would leave nothing standing out. */
+
+/* --- Game art watermark -------------------------------------------------- */
+/* The game's key art behind the card, faded to texture, on its own element
+ * because the status tint owns the card's background.
+ *
+ * The card must not become a stacking context (no isolation, no z-index): the
+ * info tooltip spills past its edge and the edit modal renders inside it, and
+ * both would paint under the next card. Tree order puts the content on top.
+ *
+ * Kept faint so the status tint stays the stronger signal. Contrast against the
+ * brightest pixel of either image at 0.10: #a3b0c0 muted holds >= 5.2:1, the
+ * ready card needs #bac5d2 for 4.7:1, body text >= 6.9:1. */
+.world-card {
+  position: relative;
+}
+.world-card > .world-head,
+.world-card > .world-meta,
+.world-card > .error-banner,
+.world-card > .world-actions {
+  position: relative;
+}
+.world-card--art {
+  --muted: #a3b0c0;
+}
+.world-card--art.world-card--ready {
+  --muted: #bac5d2;
+}
+.world-card-art {
+  position: absolute;
+  inset: 0;
+  /* Clips the zoom to the card; the card itself cannot clip without also
+     clipping the tooltip. */
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.world-card-art::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  /* The operator's art for the game (/api/games), anchored by its module. */
+  background-image: var(--world-art);
+  background-position: var(--world-art-position, center);
+  transform-origin: var(--world-art-position, center);
+  background-size: cover;
+  background-repeat: no-repeat;
+  opacity: 0.1;
+  transition: transform 250ms ease-out;
+}
+.world-card:hover .world-card-art::before {
+  transform: scale(1.06);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .world-card {
+    transition: none;
+  }
+  .world-card-art::before {
+    transition: none;
+  }
+  .world-card:hover .world-card-art::before {
+    transform: none;
+  }
+}
+
+/* --- Copyable text ------------------------------------------------------ */
+/* A connect address exists to be pasted, so the whole row is the target: a
+   16px icon is a poor tap target, and people aim at the text they want. */
+.copyable {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 6px 2px 0;
+  margin: 0 0 2px -2px;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+.copyable:hover,
+.copyable:focus-visible {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--border);
+  padding-left: 6px;
+  margin-left: -6px;
+}
+.copyable-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.copyable-icon {
+  flex-shrink: 0;
+  opacity: 0.65;
+  font-size: 0.9em;
+}
+.copyable:hover .copyable-icon,
+.copyable:focus-visible .copyable-icon {
+  opacity: 1;
+}
+
+/* Visible to screen readers only; used to announce the copy result. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Edit modal: backups and delete panes -------------------------------- */
+.backups-bar {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* Deletion is a destination, not a button beside Save. Tinting the tab marks
+   it without making it loud -- it should be findable, not inviting. */
+.tab-danger {
+  color: #d98a85;
+}
+.tab-danger.tab-active {
+  color: var(--danger);
+}
+.danger-pane .danger-copy h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+.danger-pane .danger-copy p {
+  margin: 0 0 8px;
+  max-width: 54ch;
+}
+.danger-pane {
+  border-left: 3px solid rgba(248, 81, 73, 0.5);
+  padding-left: 14px;
+}
+
+/* A world someone else owns. Neutral rather than alarming: sharing is normal,
+   and the badge exists to explain why this card has fewer buttons. */
+.tag-shared {
+  color: #b9a5d6;
+  background: rgba(167, 139, 250, 0.08);
+  border-color: rgba(167, 139, 250, 0.3);
+  font-variant: small-caps;
+}
+
+/* --- Narrow screens ------------------------------------------------------ */
+/* 560px rather than 420px: the header runs out of room well before phone
+   width, and a small tablet in portrait hits the same wall. */
+@media (max-width: 560px) {
+  .app-header {
+    padding: 12px 16px;
+  }
+  /* No flex-basis override: plain wrapping keeps one row while the email fits
+     beside the brand. flex-start below left-aligns a wrapped second row. */
+  .header-actions {
+    justify-content: flex-start;
+  }
+  .user-menu-trigger {
+    max-width: 100%;
+  }
+
+  /* Reclaim the backdrop's gutter; 24px a side is a lot of a 360px screen. */
+  .modal-backdrop {
+    padding: 10px;
+  }
+  .modal {
+    padding: 16px;
+    max-height: calc(100dvh - 20px);
+  }
+  /* Smaller everywhere on a phone; how they lay out depends on how many. */
+  .source-tabs .tab {
+    font-size: 0.8rem;
+    padding: 9px 10px;
+  }
+  /* In a modal there are up to six, so size them to their labels and let them
+     wrap. Packing beats a fixed 50%: forcing two per row gives three rows on a
+     phone, where "General" and "Delete" are happy to share one. */
+  .modal .source-tabs .tab {
+    flex: 0 1 auto;
+  }
+  /* Full-width, stacked, primary action last so it sits nearest the thumb. */
+  .modal-actions {
+    /* DOM order is Cancel then Save, so plain `column` leaves the primary
+       action at the bottom, nearest the thumb. */
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .modal-actions .btn {
+    width: 100%;
+  }
+  /* Multi-column input rows do not fit; one column reads better than a
+     squeeze. .form-row is three columns by default, .form-row-2 is two. */
+  .form-row,
+  .form-row-2 {
+    grid-template-columns: 1fr;
+  }
+  .content-head {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  /* 24px a side is 13% of a 360px screen spent on nothing. */
+  .content {
+    padding: 20px 14px 48px;
+  }
+
+  /* One card per row. `minmax(340px, 1fr)` cannot go below 340px, so with the
+     padding above it overflowed to the right on anything narrower than ~388px
+     -- auto-fill still lays down one 340px track when only 312px are free.
+     Not reported, but the same overflow as the table, one breakpoint away. */
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- World icon ---------------------------------------------------------- */
+/* Icons are 64px pixel art more often than not (Minecraft's own format), so
+   they are scaled without smoothing: blurred pixel art reads as broken. */
+.world-icon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  image-rendering: pixelated;
+}
+
+.icon-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.icon-picker-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.icon-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.icon-picker-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+/* One target: the whole square opens the picker, the pencil only says so. */
+.icon-tile {
+  position: relative;
+  flex: none;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  overflow: hidden;
+  color: var(--text);
+}
+.icon-tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+.icon-tile-empty {
+  border-style: dashed;
+  background: transparent;
+}
+button.icon-tile {
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+button.icon-tile:hover:not(:disabled),
+button.icon-tile:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+button.icon-tile:focus-visible {
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.4);
+}
+button.icon-tile:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+.icon-tile-pencil {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(13, 17, 23, 0.8);
+  border: 1px solid var(--border);
+  transition: color 150ms ease;
+}
+.icon-tile-empty .icon-tile-pencil {
+  /* Nothing to cover on an empty tile, so the pencil takes the middle. */
+  right: 50%;
+  bottom: 50%;
+  transform: translate(50%, 50%);
+}
+.icon-tile-pencil svg {
+  width: 13px;
+  height: 13px;
+}
+button.icon-tile:hover:not(:disabled) .icon-tile-pencil,
+button.icon-tile:focus-visible .icon-tile-pencil {
+  color: var(--accent);
+}
+
+/* What "Clear icon" will delete: each file with its preview and path. */
+.icon-clear-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.icon-clear-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.icon-clear-list code {
+  overflow-wrap: anywhere;
+}
+.icon-tile-sm {
+  width: 40px;
+  height: 40px;
+}
+
+/* --- World list sorting --------------------------------------------------- */
+.list-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin: -8px 0 12px;
+}
+.world-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.world-sort select {
+  width: auto;
+}
+.content-head-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* Server error on a world card: one line closed, the log excerpt open. */
+.world-error {
+  position: relative;
+  margin: 10px 0 0;
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  background: rgba(248, 81, 73, 0.08);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+.world-error summary {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 8px 12px;
+  cursor: pointer;
+  list-style: none;
+  min-width: 0;
+}
+.world-error summary::-webkit-details-marker {
+  display: none;
+}
+.world-error summary::before {
+  content: "▸";
+  color: var(--danger);
+  transition: transform 0.15s ease;
+}
+.world-error[open] summary::before {
+  transform: rotate(90deg);
+}
+.world-error-title {
+  color: var(--danger);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.world-error-summary {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.world-error-log {
+  margin: 0 12px 8px;
+  padding: 10px;
+  max-height: 280px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.world-error-when {
+  padding: 0 12px 10px;
+}
+
+/* Pop-in notifications, bottom right. */
+.toasts {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(380px, calc(100vw - 40px));
+}
+.toast {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+  animation: toast-in 0.2s ease-out;
+}
+.toast-error {
+  border-left: 3px solid var(--danger);
+}
+.toast-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.toast-title {
+  flex: 1;
+  font-size: 0.9rem;
+}
+.toast-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.toast-close:hover {
+  color: var(--text);
+}
+.toast-body {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.toast-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+.toast-more {
+  text-align: center;
+  padding: 8px;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}
+
+/* Admin tabs */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font: inherit;
+  padding: 10px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tab:hover {
+  color: var(--text);
+}
+.tab-active {
+  color: var(--text);
+  border-bottom-color: var(--primary);
+}
+
+/* Admin metrics: the Grafana dashboard, framed */
+.metrics-frame {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 260px);
+  min-height: 560px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}

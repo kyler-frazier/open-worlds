@@ -1,0 +1,5 @@
+# Only what the exporter image copies. Each game's policy, not the rest of games/.
+*
+!egress-exporter/exporter.py
+!egress-guard/trust.py
+!games/*/egress.py

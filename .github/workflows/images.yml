@@ -1,0 +1,68 @@
+# Builds every image the stack builds itself, and scans them. Third-party
+# images are pinned by digest and scanned by `make scan`; their findings clear
+# only when upstream rebuilds, so they would only ever turn this red.
+name: images
+
+# Every push and PR, with no path filter: the build is a required check, and a
+# required check that never runs would block every PR that skips it. Weekly
+# too, so a new finding in a base image shows up without a change here.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "41 15 * * 2"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: deploy
+
+jobs:
+  build:
+    name: Images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Every profile, so the egress guard and each game's router are built
+      # too. .env.example stands in for .env, as in the deploy workflow.
+      - name: Build
+        run: docker compose --env-file .env.example --profile '*' build
+
+  # Separate from the build, and not a required check: a finding published
+  # today in a base image should not block an unrelated pull request. It is
+  # fixed by bumping the base image's digest.
+  scan:
+    name: Image scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build
+        run: docker compose --env-file .env.example --profile '*' build
+
+      # Fixable HIGH/CRITICAL only, as `make scan` does. The images built here
+      # carry no registry prefix; the pinned ones all do.
+      - name: Scan
+        run: |
+          status=0
+          for image in $(docker compose --env-file .env.example --profile '*' config --images | sort -u | grep -v '[/@]'); do
+            echo "::group::$image"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c \
+              image --quiet --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
+              --exit-code 1 "$image" || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"

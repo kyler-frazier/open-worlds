@@ -1,0 +1,656 @@
+# Open Worlds: single-host deployment, Minecraft and Palworld side by side.
+#
+# Networks
+#   edge         public-facing: edge reverse proxy <-> web, api, Grafana
+#   backend      private: db <-> api/worker/internal-api/world-manager (+ VictoriaMetrics)
+#   socketproxy  private: world-manager <-> docker-socket-proxy
+#   routerapi    private: worker/VictoriaMetrics <-> mc-router's route API
+#   monitoring   private: VictoriaMetrics, Grafana, cAdvisor, egress-exporter
+#   games        shared with every world container (external; created out of band)
+#
+# Each game has its own edge router, and they never overlap:
+#
+#   mc-router   TCP 25565 for every Minecraft world, routed by the hostname in
+#               the handshake; the worker publishes its routes.
+#   pal-waker   UDP 8211-8220, one port per Palworld world (its protocol carries
+#               no hostname); the port map comes from internal-api.
+#
+# Only world-manager holds the Docker credential. The api is not on `games`, so
+# world containers cannot reach it; internal-api serves the routers there.
+#
+# Everything starts with a plain `up -d`, monitoring and observers included, so
+# a reboot cannot silently drop them. The exception is each game's router
+# (games/<game>/compose.yml), under a profile named for the game; COMPOSE_PROFILES
+# in .env turns them on, and preflight refuses an enabled game whose profile is
+# off.
+
+# Pinned, not taken from the directory name: volumes and container names are
+# keyed on it, so changing it is a data migration.
+name: open-worlds
+
+# Each game's edge router, behind a profile per game.
+include:
+  - games/minecraft/compose.yml
+  - games/palworld/compose.yml
+
+x-api-image: &api-image
+  build:
+    context: ../api
+    dockerfile: Dockerfile
+  image: open-worlds-api:latest
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  pids_limit: 256
+
+# Every service: no capabilities unless it names the ones it needs, no setuid
+# escalation, and a ceiling on memory and processes, so one runaway (or one
+# hostile client) cannot take the host's memory from Postgres and the worlds.
+# Limits sit well above each service's normal use.
+x-hardened: &hardened
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+# The role api, worker and internal-api connect as: rows only, no schema
+# changes, not a superuser. See db/roles.sql.
+x-app-db-url: &app-db-url postgresql+psycopg://ow_app:${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD in .env}@db:5432/${POSTGRES_DB}
+
+# Non-secret configuration, passed explicitly to every app service. Secrets are
+# listed per service, each getting only what it uses, so `docker inspect` on one
+# shows nothing it does not need. A PLATFORM_* variable set in .env but not
+# listed here or on a service is not read; preflight refuses that.
+x-platform-config: &platform-config
+  # No PLATFORM_DOCKER_HOST: only world-manager holds the Docker credential.
+  PLATFORM_WORLD_MANAGER_URL: http://world-manager:8000
+  # The worker publishes Minecraft routes to mc-router's address on `routerapi`.
+  PLATFORM_MC_ROUTER_API_URL: http://172.30.0.3:26660
+  PLATFORM_WORLD_MANAGER_SECRET: ${PLATFORM_WORLD_MANAGER_SECRET:?set PLATFORM_WORLD_MANAGER_SECRET in .env}
+  PLATFORM_LOG_LEVEL: ${PLATFORM_LOG_LEVEL:-INFO}
+  PLATFORM_LOG_JSON: ${PLATFORM_LOG_JSON:-true}
+  PLATFORM_COOKIE_SECURE: ${PLATFORM_COOKIE_SECURE:-true}
+  PLATFORM_OAUTH_REDIRECT_BASE: ${PLATFORM_OAUTH_REDIRECT_BASE:?set PLATFORM_OAUTH_REDIRECT_BASE in .env}
+  PLATFORM_ADMIN_GOOGLE_SUBS: ${PLATFORM_ADMIN_GOOGLE_SUBS:-}
+  PLATFORM_WEB_ORIGIN: ${PLATFORM_WEB_ORIGIN:?set PLATFORM_WEB_ORIGIN in .env}
+  PLATFORM_SERVERS_DOMAIN: ${PLATFORM_SERVERS_DOMAIN:?set PLATFORM_SERVERS_DOMAIN in .env}
+  PLATFORM_GAMES_SUBNET: ${PLATFORM_GAMES_SUBNET:-172.19.0.0/16}
+  # Which games' routers run here; an admin can only offer a game whose router
+  # is up.
+  PLATFORM_COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
+  PLATFORM_GAME_PORT_RANGE_START: ${PLATFORM_GAME_PORT_RANGE_START:-8211}
+  PLATFORM_GAME_PORT_RANGE_END: ${PLATFORM_GAME_PORT_RANGE_END:-8220}
+  PLATFORM_MAX_MEMORY_MB: ${PLATFORM_MAX_MEMORY_MB:-32768}
+  PLATFORM_MIN_MEMORY_MB: ${PLATFORM_MIN_MEMORY_MB:-1024}
+  PLATFORM_DEFAULT_MEMORY_MB: ${PLATFORM_DEFAULT_MEMORY_MB:-}
+  PLATFORM_HOST_MEMORY_BUDGET_MB: ${PLATFORM_HOST_MEMORY_BUDGET_MB:-}
+  PLATFORM_CONTAINER_CPUS: ${PLATFORM_CONTAINER_CPUS:-0}
+  PLATFORM_PALWORLD_ALLOW_NEGATIVE_DELTA_TIME: ${PLATFORM_PALWORLD_ALLOW_NEGATIVE_DELTA_TIME:-false}
+  # Resolver for world containers. Empty keeps Docker's; set it to the
+  # dns-observer to record the names worlds ask for. The orchestrator appends a
+  # fallback, so a dead observer only slows the first lookup.
+  PLATFORM_WORLD_DNS: ${PLATFORM_WORLD_DNS:-}
+  PLATFORM_WORLD_DNS_FALLBACK: ${PLATFORM_WORLD_DNS_FALLBACK:-1.1.1.1}
+  # Every world runs behind an egress guard (egress-guard/), whose image is
+  # built with: docker compose --profile guard build egress-guard
+  # BLOCKING_DEFAULT: whether new worlds start with blocking on.
+  # OVERRIDE: who may change a world's blocking in the UI: none (default),
+  #   admin, or owner_and_manager.
+  # GUARD_ENABLED: emergency switch; false removes the guards.
+  PLATFORM_EGRESS_BLOCKING_DEFAULT: ${PLATFORM_EGRESS_BLOCKING_DEFAULT:-false}
+  PLATFORM_EGRESS_OVERRIDE_ACTORS: ${PLATFORM_EGRESS_OVERRIDE_ACTORS:-none}
+  PLATFORM_EGRESS_GUARD_ENABLED: ${PLATFORM_EGRESS_GUARD_ENABLED:-true}
+  PLATFORM_EGRESS_GUARD_IMAGE: ${PLATFORM_EGRESS_GUARD_IMAGE:-open-worlds-egress-guard:latest}
+  PLATFORM_MAX_WORLDS_PER_USER: ${PLATFORM_MAX_WORLDS_PER_USER:-10}
+  PLATFORM_AUTO_STOP_AFTER_SECONDS: ${PLATFORM_AUTO_STOP_AFTER_SECONDS:-600}
+  PLATFORM_WAKE_GRACE_SECONDS: ${PLATFORM_WAKE_GRACE_SECONDS:-180}
+  PLATFORM_WORLDS_DIR: ${PLATFORM_DATA_ROOT:-/srv/games}/worlds
+  PLATFORM_BACKUP_STAGING_DIR: ${PLATFORM_DATA_ROOT:-/srv/games}/backup-staging
+  PLATFORM_RUNTIME_CONFIG_PATH: ${PLATFORM_DATA_ROOT:-/srv/games}/platform-config/settings.json
+  PLATFORM_RUN_UID: ${PUID:-1000}
+  PLATFORM_RUN_GID: ${PGID:-1000}
+
+services:
+  db:
+    image: postgres:18.6-alpine@sha256:9ba53c7d41ea093baf5c1ba635ba5434c4f979880527d49bb7d9237d3193085b
+    restart: unless-stopped
+    <<: *hardened
+    # The entrypoint fixes the data dir's ownership, then drops to postgres.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    mem_limit: 1g
+    pids_limit: 256
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      # Postgres 18 keeps data in a versioned subdirectory, so the mount is the
+      # parent. A major upgrade means a new volume restored from a pg_dump.
+      - pgdata18:/var/lib/postgresql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # No published ports: Postgres is reachable only on the internal network.
+
+  # Creates the platform's own roles and hands them the schema (db/roles.sql),
+  # as the superuser, which no long-running app process holds. Runs and exits
+  # on every `up`; safe to repeat.
+  db-init:
+    image: postgres:18.6-alpine@sha256:9ba53c7d41ea093baf5c1ba635ba5434c4f979880527d49bb7d9237d3193085b
+    restart: "no"
+    <<: *hardened
+    # The image's postgres user; psql needs nothing more.
+    user: "70:70"
+    mem_limit: 128m
+    pids_limit: 32
+    entrypoint:
+      - psql
+      - --no-psqlrc
+      - --quiet
+      - --host=db
+      - --username=${POSTGRES_USER}
+      - --dbname=${POSTGRES_DB}
+      - --set=db=${POSTGRES_DB}
+      - --set=owner=ow_owner
+      - --set=app=ow_app
+      - --file=/roles.sql
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_OWNER_PASSWORD: ${POSTGRES_OWNER_PASSWORD:?set POSTGRES_OWNER_PASSWORD in .env}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD in .env}
+    volumes:
+      - ./db/roles.sql:/roles.sql:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+
+  # Migrations, as the schema's owner. Runs and exits; the app services wait
+  # for it, so they never see an older schema.
+  migrate:
+    <<: *api-image
+    restart: "no"
+    user: "${PUID:-1000}:${PGID:-1000}"
+    mem_limit: 512m
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      PLATFORM_DATABASE_URL: postgresql+psycopg://ow_owner:${POSTGRES_OWNER_PASSWORD:?set POSTGRES_OWNER_PASSWORD in .env}@db:5432/${POSTGRES_DB}
+      PLATFORM_LOG_JSON: ${PLATFORM_LOG_JSON:-true}
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    networks:
+      - backend
+
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    restart: unless-stopped
+    # The daemon remaps user namespaces so an escaped world container is not a
+    # real host uid. This proxy must read the host socket, which a remapped root
+    # cannot, so it stays in the host userns.
+    userns_mode: "host"
+    <<: *hardened
+    mem_limit: 128m
+    pids_limit: 128
+    # Image files belong to the remapped uid, so host-userns root without
+    # DAC_OVERRIDE cannot write its pidfile into the image's /run.
+    tmpfs:
+      - /run
+    environment:
+      # Enough to create, start, stop and remove world containers.
+      CONTAINERS: 1
+      IMAGES: 1
+      NETWORKS: 1
+      INFO: 1
+      EVENTS: 1
+      POST: 1
+      # Explicitly denied surfaces.
+      EXEC: 0
+      VOLUMES: 0
+      SECRETS: 0
+      SWARM: 0
+      SYSTEM: 0
+      # What a create may ask for: binds only under the worlds dir, the games
+      # network, and the guard image beside the two pinned game images. The
+      # template splices these into regexes, so they must match what
+      # world-manager sends exactly.
+      WORLDS_ROOT: ${PLATFORM_DATA_ROOT:-/srv/games}/worlds
+      GAMES_NETWORK: games
+      GUARD_IMAGE: ${PLATFORM_EGRESS_GUARD_IMAGE:-open-worlds-egress-guard:latest}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Upstream grants per endpoint, so CONTAINERS + POST would allow stopping
+      # anything on the host. The template also denies any mutation whose path
+      # does not name a world container. See socketproxy/README.md.
+      - ./socketproxy/haproxy.cfg.template:/usr/local/etc/haproxy/haproxy.cfg.template:ro
+    networks:
+      - socketproxy
+
+  api:
+    <<: *api-image
+    restart: unless-stopped
+    # The owner of the worlds and backup dirs, so world data stays writable by
+    # the worker and the world containers.
+    user: "${PUID:-1000}:${PGID:-1000}"
+    mem_limit: 768m
+    command: ["platform-api"]
+    environment:
+      <<: *platform-config
+      PLATFORM_DATABASE_URL: *app-db-url
+      # Only the secrets this process uses. `:?` fails the deploy, not the
+      # container, when one is missing.
+      PLATFORM_SESSION_SECRET: ${PLATFORM_SESSION_SECRET:?set PLATFORM_SESSION_SECRET in .env}
+      PLATFORM_FERNET_KEY: ${PLATFORM_FERNET_KEY:?set PLATFORM_FERNET_KEY in .env}
+      PLATFORM_SESSION_OLD_SECRETS: ${PLATFORM_SESSION_OLD_SECRETS:-}
+      PLATFORM_FERNET_OLD_KEYS: ${PLATFORM_FERNET_OLD_KEYS:-}
+      PLATFORM_GOOGLE_CLIENT_ID: ${PLATFORM_GOOGLE_CLIENT_ID:?set PLATFORM_GOOGLE_CLIENT_ID in .env}
+      PLATFORM_GOOGLE_CLIENT_SECRET: ${PLATFORM_GOOGLE_CLIENT_SECRET:?set PLATFORM_GOOGLE_CLIENT_SECRET in .env}
+      # Trust X-Forwarded-* only from the edge's static IP.
+      PLATFORM_FORWARDED_ALLOW_IPS: ${PLATFORM_FORWARDED_ALLOW_IPS:-172.28.0.2}
+      # Each game's card artwork, which the operator brings: see game-art/.
+      PLATFORM_GAME_ART_DIR: /game-art
+    volumes:
+      - ${GAME_ART_DIR:-./game-art}:/game-art:ro
+      # Same path as on the host, so bind mounts the orchestrator requests for
+      # world containers resolve on the Docker host.
+      - ${PLATFORM_DATA_ROOT:-/srv/games}/worlds:${PLATFORM_DATA_ROOT:-/srv/games}/worlds
+      - ${PLATFORM_DATA_ROOT:-/srv/games}/backup-staging:${PLATFORM_DATA_ROOT:-/srv/games}/backup-staging
+      # Admin-tunable runtime settings, shared read/write with the worker.
+      - ${PLATFORM_DATA_ROOT:-/srv/games}/platform-config:${PLATFORM_DATA_ROOT:-/srv/games}/platform-config
+    # No published ports; reached through the edge. Not on `games`, so world
+    # containers cannot reach the control plane.
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - backend
+      - edge
+
+  # The narrow API the two routers need: the port map and wake/sleep for
+  # pal-waker, world existence for the Minecraft placeholder. On `games` so the
+  # routers can reach it, which keeps the full API off that network. Wake starts
+  # containers and every world can reach this by name, so
+  # PLATFORM_INTERNAL_SECRET is the real authorization boundary.
+  internal-api:
+    <<: *api-image
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    mem_limit: 384m
+    command:
+      ["uvicorn", "open_worlds.api.main:internal_app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      <<: *platform-config
+      PLATFORM_DATABASE_URL: *app-db-url
+      # The internal secret, and the Fernet key to decrypt a world's admin
+      # password into its spec. No users, so no session or OAuth secrets.
+      PLATFORM_INTERNAL_SECRET: ${PLATFORM_INTERNAL_SECRET:?set PLATFORM_INTERNAL_SECRET in .env}
+      PLATFORM_FERNET_KEY: ${PLATFORM_FERNET_KEY:?set PLATFORM_FERNET_KEY in .env}
+      PLATFORM_FERNET_OLD_KEYS: ${PLATFORM_FERNET_OLD_KEYS:-}
+    volumes:
+      # Same path as on the host, as for the api.
+      - ${PLATFORM_DATA_ROOT:-/srv/games}/worlds:${PLATFORM_DATA_ROOT:-/srv/games}/worlds
+    # No published ports: reached only over the private networks.
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - backend
+      - games
+
+  worker:
+    <<: *api-image
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    # Archive extraction and Drive transfers stream; this is headroom, not need.
+    mem_limit: 1536m
+    command: ["platform-worker"]
+    environment:
+      <<: *platform-config
+      PLATFORM_DATABASE_URL: *app-db-url
+      # The Fernet key, and the OAuth client for Drive uploads. Serves no
+      # HTTP, so no session or internal secret.
+      PLATFORM_FERNET_KEY: ${PLATFORM_FERNET_KEY:?set PLATFORM_FERNET_KEY in .env}
+      PLATFORM_FERNET_OLD_KEYS: ${PLATFORM_FERNET_OLD_KEYS:-}
+      PLATFORM_GOOGLE_CLIENT_ID: ${PLATFORM_GOOGLE_CLIENT_ID:?set PLATFORM_GOOGLE_CLIENT_ID in .env}
+      PLATFORM_GOOGLE_CLIENT_SECRET: ${PLATFORM_GOOGLE_CLIENT_SECRET:?set PLATFORM_GOOGLE_CLIENT_SECRET in .env}
+      # Content-addressed download cache, shared across worlds.
+      PLATFORM_CONTENT_CACHE_DIR: ${PLATFORM_DATA_ROOT:-/srv/games}/content-cache
+    volumes:
+      - ${PLATFORM_DATA_ROOT:-/srv/games}/worlds:${PLATFORM_DATA_ROOT:-/srv/games}/worlds
+      - ${PLATFORM_DATA_ROOT:-/srv/games}/backup-staging:${PLATFORM_DATA_ROOT:-/srv/games}/backup-staging
+      - ${PLATFORM_DATA_ROOT:-/srv/games}/platform-config:${PLATFORM_DATA_ROOT:-/srv/games}/platform-config
+      - ${PLATFORM_DATA_ROOT:-/srv/games}/content-cache:${PLATFORM_DATA_ROOT:-/srv/games}/content-cache
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - backend
+      - games
+      # Publishes Minecraft routes to mc-router's API.
+      - routerapi
+
+  # The only process holding the Docker credential. Anything that can create a
+  # container can be root on the host, and the socket proxy filters by path,
+  # never by body. So the internet-facing api asks this service, through a few
+  # typed operations on a subdomain or world spec, and cannot ask for a host
+  # mount. A flaw here is still a host compromise, but the surface is small and
+  # private.
+  world-manager:
+    <<: *api-image
+    restart: unless-stopped
+    command:
+      ["uvicorn", "open_worlds.world_manager.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    mem_limit: 384m
+    environment:
+      <<: *platform-config
+      # The one process given the socket proxy; it must not be told about
+      # itself.
+      PLATFORM_DOCKER_HOST: tcp://docker-socket-proxy:2375
+      PLATFORM_WORLD_MANAGER_URL: ""
+      PLATFORM_WORLD_MANAGER_SECRET: ${PLATFORM_WORLD_MANAGER_SECRET:?set PLATFORM_WORLD_MANAGER_SECRET in .env}
+    user: "${PUID:-1000}:${PGID:-1000}"
+    volumes:
+      # Creating a world creates its data directory.
+      - ${PLATFORM_DATA_ROOT:-/srv/games}/worlds:${PLATFORM_DATA_ROOT:-/srv/games}/worlds
+    # No published ports: reached only from `backend`, by api and worker.
+    networks:
+      - backend
+      - socketproxy
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+    image: open-worlds-web:latest
+    restart: unless-stopped
+    <<: *hardened
+    # nginx's master starts as root and drops its workers to the nginx user.
+    cap_add: [CHOWN, SETGID, SETUID]
+    mem_limit: 128m
+    pids_limit: 128
+    # No published ports: served through the app edge over the `edge` network.
+    networks:
+      - edge
+
+  # egress-exporter: serves the guards' refusals, from the dns-observer's
+  # report, as Prometheus metrics. No host namespace, root or capabilities,
+  # and a read-only view of the report's directory.
+  egress-exporter:
+    build:
+      context: .
+      dockerfile: egress-exporter/Dockerfile
+    image: egress-exporter:latest
+    restart: unless-stopped
+    # Reachable by VictoriaMetrics only; not on `games`.
+    networks: [monitoring]
+    user: "65534:65534"
+    environment:
+      METRICS_PORT: ${PLATFORM_EGRESS_METRICS_PORT:-9109}
+      # Past this the report is stale. Well above the dns-observer's write
+      # interval, so one slow write is not an alert, but a dead one is noticed.
+      STALE_AFTER: ${PLATFORM_EGRESS_STALE_AFTER:-300}
+    volumes:
+      - ${PLATFORM_DATA_ROOT:-/srv/games}/observations:/data:ro
+    <<: *hardened
+    mem_limit: 128m
+    pids_limit: 32
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  # dns-observer: records the names world containers ask for, and the answers.
+  # conntrack gives only addresses, and most CDN addresses have no PTR; the
+  # container's own lookups are what tie a name to its traffic. Unprivileged.
+  # Static address because resolv.conf takes addresses.
+  dns-observer:
+    build:
+      context: ./dns-observer
+      dockerfile: Dockerfile
+    image: dns-observer:latest
+    restart: unless-stopped
+    networks:
+      games:
+        ipv4_address: ${PLATFORM_DNS_OBSERVER_IP:-172.19.255.53}
+    environment:
+      # Where real resolution happens. Docker's embedded resolver still answers
+      # container names inside each container.
+      DNS_UPSTREAM: ${PLATFORM_DNS_UPSTREAM:-1.1.1.1}
+      DNS_LISTEN_PORT: "53"
+      OUTPUT_PATH: /data/dns-observations.json
+      WRITE_SECONDS: ${PLATFORM_DNS_WRITE_SECONDS:-30}
+    volumes:
+      - ${PLATFORM_DATA_ROOT:-/srv/games}/observations:/data
+    <<: *hardened
+    mem_limit: 128m
+    pids_limit: 64
+    read_only: true
+
+  # egress-guard: not a service. The orchestrator runs one per enforced world,
+  # owning its network namespace; compose only builds the image. Built from
+  # deploy/ because it bakes in egress-guard/trust.py and each game's
+  # games/<game>/egress.py. Rebuilding ships a change to the approved names;
+  # each guard from an older image is replaced on its world's next start.
+  egress-guard:
+    profiles: ["guard"]
+    build:
+      context: .
+      dockerfile: egress-guard/Dockerfile
+    image: open-worlds-egress-guard:latest
+
+  # App edge: the stack's own reverse proxy, owning application routing (web vs
+  # api, blocked paths). TLS is terminated by an outer proxy, which forwards
+  # plain HTTP to this one port. EDGE_BIND defaults to loopback.
+  edge:
+    image: nginx:1.31-alpine@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11
+    restart: unless-stopped
+    <<: *hardened
+    cap_add: [CHOWN, SETGID, SETUID]
+    mem_limit: 128m
+    pids_limit: 128
+    depends_on:
+      - web
+      - api
+    ports:
+      - "${EDGE_BIND:-127.0.0.1}:${EDGE_PORT:-18080}:80"
+    environment:
+      # The outer proxy, whose X-Forwarded-For names the client
+      # (edge/nginx.conf). The same address the firewall admits.
+      EDGE_TRUSTED_PROXY: ${EDGE_ALLOW_FROM:-127.0.0.1}
+    volumes:
+      # A template: nginx's entrypoint substitutes the variable above into
+      # conf.d at start.
+      - ./edge/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+    networks:
+      # Static IP so the API trusts X-Forwarded-* only from the edge.
+      edge:
+        ipv4_address: 172.28.0.2
+
+  # --- TLS terminator (enable with `--profile tls`) ------------------------
+  # Off by default: until DNS points here and 80/443 reach this host, Caddy fails
+  # ACME and crash-loops. See README's TLS section. The edge's own port stays.
+  tls:
+    image: caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
+    profiles: ["tls"]
+    restart: unless-stopped
+    <<: *hardened
+    # The image's caddy binary carries this file capability; without it in the
+    # bounding set the binary will not exec.
+    cap_add: [NET_BIND_SERVICE]
+    mem_limit: 256m
+    pids_limit: 256
+    depends_on:
+      - edge
+    environment:
+      # Plain defaults, not ${VAR:?...}: compose interpolates every service
+      # whatever its profile. preflight checks these when the profile is on.
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      # Empty for production. Set ACME_CA_DIRECTIVE to
+      #   acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+      # while DNS is still settling; see tls/Caddyfile.
+      ACME_CA_DIRECTIVE: ${ACME_CA_DIRECTIVE:-}
+    ports:
+      # 80 is needed for ACME's HTTP-01 challenge, and redirects to 443.
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./tls/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME keys; losing them means re-issuing, which rate
+      # limits punish.
+      - caddydata:/data
+      - caddyconfig:/config
+    networks:
+      - edge
+
+  # --- Monitoring (always on) ---
+  # VictoriaMetrics scrapes each service's /metrics over the private networks.
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.155.0@sha256:f60dc268b54ecf87f6e09d740c2b732838aa9193090cc741417c9f6386a130df
+    restart: unless-stopped
+    <<: *hardened
+    mem_limit: 1g
+    pids_limit: 256
+    command:
+      - --retentionPeriod=6
+      - --storageDataPath=/vmdata
+      - --promscrape.config=/etc/vm/scrape.yml
+    volumes:
+      - vmdata:/vmdata
+      - ./monitoring/victoriametrics/scrape.yml:/etc/vm/scrape.yml:ro
+    # backend: the app services. routerapi: mc-router's metrics.
+    networks:
+      - backend
+      - routerapi
+      - monitoring
+
+  cadvisor:
+    # Published on ghcr.io from v0.56; gcr.io stopped at v0.55.1.
+    image: ghcr.io/google/cadvisor:v0.60.6@sha256:b8e7d1093144fd088f425ff003d75a4aa405de075db78dae3bc563730b1bd07a
+    restart: unless-stopped
+    # Tuned down so an idle host can reach deep CPU sleep states: every 30s,
+    # Docker containers only, only the metric families the dashboards read.
+    command:
+      - --housekeeping_interval=30s
+      - --docker_only=true
+      - --store_container_labels=false
+      - --enable_metrics=cpu,memory,network
+    # Reads host /sys, /var/run and /var/lib/docker, so it stays in the host
+    # userns. Not privileged and no capabilities: as root it can already read
+    # the root-owned files the cpu, memory and network metrics come from.
+    userns_mode: "host"
+    <<: *hardened
+    mem_limit: 256m
+    pids_limit: 128
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:13.3.0@sha256:488984b716c0862639f91a698adbe2862677a5a07bad42da5f03f3030883b205
+    restart: unless-stopped
+    <<: *hardened
+    mem_limit: 768m
+    pids_limit: 512
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Served at <site>/grafana/ through the edge, and at
+      # http://localhost:3000/grafana/ over an SSH tunnel.
+      GF_SERVER_ROOT_URL: ${PLATFORM_WEB_ORIGIN:?set PLATFORM_WEB_ORIGIN in .env}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # The edge asks the api whether you are an admin (edge/nginx.conf) and
+      # names you in this header. Grafana believes it only from the edge's IP.
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: X-WEBAUTH-USER
+      GF_AUTH_PROXY_HEADER_PROPERTY: username
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_WHITELIST: 172.28.0.2
+      # Admins are Viewers; viewers_can_edit adds Explore, but saving still
+      # 403s. Deprecated but working on 13.x; if removed, use Editor with the
+      # provisioned dashboards locked (allowUiUpdates: false).
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
+      GF_USERS_VIEWERS_CAN_EDIT: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # Signing out of Grafana means nothing: the edge signs you straight back
+      # in. Sign out of the platform instead.
+      GF_AUTH_DISABLE_SIGNOUT_MENU: "true"
+      # Same-origin framing only; the edge sets frame-ancestors 'self'.
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      # The login form stays as the break-glass path (built-in admin over the
+      # SSH tunnel). No phone-home: the non-internal network exists only so the
+      # loopback port can publish.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      # Background work nobody uses that keeps an idle host awake: bundled
+      # plugin installs and updates, Live websockets, the news feed.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_LIVE_MAX_CONNECTIONS: "0"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # Alert delivery. The webhook is a credential, so it stays in .env.
+      # Never empty: Grafana refuses to boot without a contact point URL. The
+      # placeholder keeps it running; preflight says it is not real.
+      ALERT_DISCORD_WEBHOOK_URL: ${ALERT_DISCORD_WEBHOOK_URL:-https://discord.com/api/webhooks/0/set-ALERT_DISCORD_WEBHOOK_URL-in-dotenv}
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    # Break-glass only. LAN_BIND defaults to loopback; never expose publicly.
+    ports:
+      - "${LAN_BIND:-127.0.0.1}:3000:3000"
+    # grafana-egress only because Docker will not publish a port for a
+    # container on internal networks alone.
+    networks:
+      - monitoring
+      - edge
+      - grafana-egress
+
+volumes:
+  pgdata18:
+  vmdata:
+  grafanadata:
+  caddydata:
+  caddyconfig:
+
+networks:
+  edge:
+    ipam:
+      config:
+        # .0.x is for static assignments (the edge); dynamic IPs come from a
+        # separate range.
+        - subnet: 172.28.0.0/16
+          ip_range: 172.28.1.0/24
+  # Not internal: api/worker need the internet (Google OAuth, Drive).
+  backend:
+  # mc-router's unauthenticated route API binds here only, never `games`.
+  # Members: mc-router, the worker and VictoriaMetrics. Static addressing as for
+  # `edge`.
+  routerapi:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+          ip_range: 172.30.1.0/24
+  socketproxy:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.29.0.0/16
+          ip_range: 172.29.1.0/24
+  monitoring:
+    internal: true
+  # Grafana-only, so its loopback port can publish.
+  grafana-egress:
+  games:
+    external: true

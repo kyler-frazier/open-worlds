@@ -1,0 +1,148 @@
+global
+    log stdout format raw daemon "${LOG_LEVEL}"
+
+    pidfile /run/haproxy.pid
+    maxconn 4000
+    # Room to hold a whole container-create body for the checks below.
+    tune.bufsize 65536
+
+    # Turn on stats unix socket
+    server-state-file /var/lib/haproxy/server-state
+
+defaults
+    mode http
+    log global
+    option httplog
+    option dontlognull
+    option http-server-close
+    option redispatch
+    retries 3
+    timeout http-request 10s
+    timeout queue 1m
+    timeout connect 10s
+    timeout client 10m
+    timeout server 10m
+    timeout http-keep-alive 10s
+    timeout check 10s
+    maxconn 3000
+
+    # Allow seamless reloads
+    load-server-state-from-file global
+
+    # Use provided example error pages
+    errorfile 400 /usr/local/etc/haproxy/errors/400.http
+    errorfile 403 /usr/local/etc/haproxy/errors/403.http
+    errorfile 408 /usr/local/etc/haproxy/errors/408.http
+    errorfile 500 /usr/local/etc/haproxy/errors/500.http
+    errorfile 502 /usr/local/etc/haproxy/errors/502.http
+    errorfile 503 /usr/local/etc/haproxy/errors/503.http
+    errorfile 504 /usr/local/etc/haproxy/errors/504.http
+
+backend dockerbackend
+    server dockersocket $SOCKET_PATH
+
+backend docker-events
+    server dockersocket $SOCKET_PATH
+    timeout server 0
+
+frontend dockerfrontend
+    bind ${BIND_CONFIG}
+    http-request deny unless METH_GET || { env(POST) -m bool }
+
+    # --- Local addition: mutations may only target a world container ---------
+    # Upstream decides per endpoint, not per object, so CONTAINERS + POST lets
+    # a caller stop or delete *any* container on the host -- the database, the
+    # edge, this proxy. The platform only ever mutates its own worlds, and
+    # names them game-world-<subdomain>, so the target name is enough to tell
+    # ours apart. The orchestrator addresses containers by name for exactly
+    # this reason; an id in the path no longer carries permission to mutate.
+    #
+    # Reads are untouched: inspect, list, logs and events still work on
+    # anything, which is what mc-router's discovery needs.
+    #
+    # This is a name check, not an ownership check. It cannot see labels, so a
+    # container someone else names game-world-* would pass. Closing that needs
+    # a proxy that can resolve the id and read its labels.
+    acl targets_container path,url_dec -m reg -i ^(/v[\d\.]+)?/containers/[a-zA-Z0-9_.-]+(/|$)
+    acl targets_create path,url_dec -m reg -i ^(/v[\d\.]+)?/containers/create
+    # Up to 71 characters after the prefix: a 63-character subdomain plus the
+    # "--egress" suffix that names its egress guard.
+    acl targets_world path,url_dec -m reg -i ^(/v[\d\.]+)?/containers/game-world-[a-z0-9][a-z0-9-]{0,70}(/|$)
+    http-request deny if !METH_GET targets_container !targets_create !targets_world
+
+    # --- Local addition: what a create may ask for ---------------------------
+    # The name rule alone lets a create ask Docker for anything under a
+    # game-world-* name: privileged, the host's namespaces, / bind-mounted.
+    # Docker reads the body case-insensitively and lets a later duplicate key
+    # win, so each rule searches the whole body, ignoring case, for any
+    # occurrence; nesting and order cannot hide one. world-manager checks the
+    # same list before it sends (common/docker_policy.py).
+    acl is_create path,url_dec -m reg -i ^(/v[\d\.]+)?/containers/create$
+    acl create_named_world url_param(name) -m reg ^game-world-[a-z0-9][a-z0-9-]{0,70}$
+    http-request deny if METH_POST is_create !create_named_world
+    # The whole body must be in the buffer, or a rule could miss its tail.
+    http-request deny if METH_POST is_create { req.hdr_cnt(transfer-encoding) gt 0 }
+    http-request deny if METH_POST is_create { req.hdr_cnt(content-encoding) gt 0 }
+    http-request deny if METH_POST is_create !{ req.hdr(content-length) -m found }
+    http-request deny if METH_POST is_create { req.hdr_val(content-length) gt 49152 }
+    option http-buffer-request
+    # Key spellings Docker folds to ASCII: an escaped printable character,
+    # and the two non-ASCII letters Go's case folding maps to s and k.
+    http-request deny if METH_POST is_create { req.body -m reg -i '\\u00[2-7][0-9a-f]' }
+    http-request deny if METH_POST is_create { req.body -m reg -i '\\u017f|\\u212a' }
+    http-request deny if METH_POST is_create { req.body -m reg '\xc5\xbf|\xe2\x84\xaa' }
+    http-request deny if METH_POST is_create { req.body -m reg -i '"privileged"\s*:\s*true' }
+    http-request deny if METH_POST is_create { req.body -m reg -i '"(pidmode|ipcmode|utsmode|usernsmode|cgroupnsmode|cgroupparent|runtime)"\s*:\s*"[^"]' }
+    http-request deny if METH_POST is_create { req.body -m reg -i '"(mounts|devices|devicerequests|devicecgrouprules|volumesfrom|maskedpaths|readonlypaths)"\s*:\s*\[\s*[^\]\s]' }
+    http-request deny if METH_POST is_create { req.body -m reg -i 'unconfined|seccomp[:=]|apparmor[:=]|label[:=]disable' }
+    # A network is the games network or a world's guard's namespace.
+    http-request deny if METH_POST is_create { req.body -m reg -i '"networkmode"\s*:\s*"(?!('"${GAMES_NETWORK}"'|container:game-world-[a-z0-9-]+)")' }
+    # Images: the two game servers by digest, or the locally built guard.
+    http-request deny if METH_POST is_create { req.body -m reg -i '"image"\s*:\s*"(?!(itzg/minecraft-server@sha256:[0-9a-f]{64}|thijsvanloef/palworld-server-docker@sha256:[0-9a-f]{64}|'"${GUARD_IMAGE}"')")' }
+    # Every capability added is one a world or guard is given. Walks the
+    # array one plain string at a time; the first that is not on the list,
+    # or is not plain, is refused.
+    http-request deny if METH_POST is_create { req.body -m reg -i '"capadd"\s*:\s*\[\s*("(cap_)?(chown|dac_override|fowner|fsetid|setgid|setuid|kill|net_admin|net_bind_service)"\s*,\s*)*"(?!(cap_)?(chown|dac_override|fowner|fsetid|setgid|setuid|kill|net_admin|net_bind_service)")' }
+    # Every bind is under the worlds root, without "..", the same way.
+    http-request deny if METH_POST is_create { req.body -m reg -i '"binds"\s*:\s*\[\s*("'"${WORLDS_ROOT}"'/([^"\\.]|\.(?!\.))*"\s*,\s*)*"(?!'"${WORLDS_ROOT}"'/([^"\\.]|\.(?!\.))*")' }
+
+    # Networks are read-only: worlds join the games network at create.
+    acl targets_networks path,url_dec -m reg -i ^(/v[\d\.]+)?/networks(/|$)
+    http-request deny if !METH_GET targets_networks
+    # Images: pull a game server, nothing else (no delete, no prune, no tag).
+    acl targets_images path,url_dec -m reg -i ^(/v[\d\.]+)?/images(/|$)
+    acl is_pull path,url_dec -m reg -i ^(/v[\d\.]+)?/images/create$
+    acl pull_allowed url_param(fromImage),url_dec -m reg ^(itzg/minecraft-server|thijsvanloef/palworld-server-docker|docker\.io/itzg/minecraft-server|docker\.io/thijsvanloef/palworld-server-docker)$
+    http-request deny if !METH_GET targets_images !is_pull
+    http-request deny if METH_POST is_pull !pull_allowed
+    # ------------------------------------------------------------------------
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/containers/[a-zA-Z0-9_.-]+/((stop)|(restart)|(kill)) } { env(ALLOW_RESTARTS) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/containers/[a-zA-Z0-9_.-]+/start } { env(ALLOW_START) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/containers/[a-zA-Z0-9_.-]+/stop } { env(ALLOW_STOP) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/auth } { env(AUTH) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/build } { env(BUILD) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/commit } { env(COMMIT) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/configs } { env(CONFIGS) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/containers } { env(CONTAINERS) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/distribution } { env(DISTRIBUTION) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/events } { env(EVENTS) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/exec } { env(EXEC) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/grpc } { env(GRPC) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/images } { env(IMAGES) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/info } { env(INFO) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/networks } { env(NETWORKS) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/nodes } { env(NODES) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/_ping } { env(PING) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/plugins } { env(PLUGINS) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/secrets } { env(SECRETS) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/services } { env(SERVICES) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/session } { env(SESSION) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/swarm } { env(SWARM) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/system } { env(SYSTEM) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/tasks } { env(TASKS) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/version } { env(VERSION) -m bool }
+    http-request allow if { path,url_dec -m reg -i ^(/v[\d\.]+)?/volumes } { env(VOLUMES) -m bool }
+    http-request deny
+    default_backend dockerbackend
+
+    use_backend docker-events if { path,url_dec -m reg -i ^(/v[\d\.]+)?/events }

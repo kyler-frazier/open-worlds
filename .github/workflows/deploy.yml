@@ -1,0 +1,122 @@
+# Static checks only. Everything interesting about deploy/ needs a live Docker
+# daemon and a real .env -- `make verify`, preflight's per-service config boot,
+# the socket-proxy rules -- so those stay local and pre-deploy. Running them here
+# would mean either weakening them or shipping secrets to a runner.
+#
+# What is left still catches real mistakes: a compose file that does not
+# interpolate, and a shell script that does not parse. Both have bitten. The
+# sidecars' unit tests (pal-waker, egress guard and exporter) run here too.
+name: deploy
+
+# Every push and PR, with no path filter: the job is a required check, and a
+# required check that never runs would block every PR that skips it.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: deploy
+
+jobs:
+  check:
+    name: Deploy
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned by SHA rather than tag, for the same reason the images are.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # compose interpolates every service regardless of profile, so this
+      # catches a ${VAR:?...} that would break `make up` for anyone not using
+      # the profile it belongs to -- exactly the mistake the tls profile made.
+      # .env.example stands in for .env, which is not committed. Passed with
+      # --env-file rather than copied into place, so no .env is ever written
+      # into the checkout.
+      - name: Compose file is valid
+        run: docker compose --env-file .env.example --profile '*' config >/dev/null
+
+      - name: Shell scripts parse
+        run: |
+          for f in scripts/*.sh; do
+            echo "checking $f"
+            bash -n "$f"
+          done
+
+      - name: Shell scripts are formatted
+        run: |
+          docker run --rm -v "$PWD:/d" -w /d \
+            mvdan/shfmt:v3.14.1@sha256:8c06884a35683d8763fba6c0d9484d11a61a96da65f8d497d6f625825a6043f2 \
+            -i 2 -ci -d scripts
+
+      # A daemon.json that does not parse stops Docker from starting at all.
+      - name: Host config and scripts parse
+        run: |
+          python3 -m json.tool host/docker/daemon.json >/dev/null
+          python3 -m py_compile scripts/*.py
+
+      # make scan and the weekly game-images job read the pins from the
+      # adapters; a reworded pin would drop out of both without this.
+      - name: Every game image pin is found
+        run: |
+          pins="$(scripts/game-images.sh | grep -c '@sha256:')"
+          adapters="$(ls ../api/src/open_worlds/common/games/*/adapter.py | wc -l)"
+          echo "$pins pins, $adapters adapters"
+          [ "$pins" -eq "$adapters" ]
+
+      - name: Alerting and scrape config are valid YAML
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys, yaml
+          bad = 0
+          for p in sorted(pathlib.Path("monitoring").rglob("*.y*ml")):
+              try:
+                  yaml.safe_load(p.read_text())
+                  print(f"ok   {p}")
+              except Exception as exc:
+                  print(f"FAIL {p}: {exc}"); bad = 1
+          sys.exit(bad)
+          PY
+
+      # A Postgres major cannot open the previous major's data directory, so an
+      # image bump across majors (as Dependabot proposes) would pass every other
+      # check here and then take the database down on deploy. The volume is
+      # named for the major its data belongs to; the two must agree, and moving
+      # them together is the dump-and-restore in the RUNBOOK.
+      - name: Postgres major matches its data volume
+        run: |
+          python3 - <<'PY'
+          import re, sys, yaml
+          db = yaml.safe_load(open("docker-compose.yml"))["services"]["db"]
+          image_major = re.match(r"postgres:(\d+)", db["image"]).group(1)
+          vols = [v.split(":")[0] for v in db.get("volumes", []) if ":/var/lib/postgresql" in v]
+          vol_major = re.fullmatch(r"pgdata(\d+)", vols[0]).group(1) if vols and re.fullmatch(r"pgdata(\d+)", vols[0]) else None
+          print(f"image major {image_major}, data volume {vols}")
+          if image_major != vol_major:
+              print(
+                  f"::error file=docker-compose.yml::Postgres {image_major} cannot open the "
+                  f"Postgres {vol_major} data in {vols}. Do not merge this as-is: follow "
+                  "'Upgrading to a new Postgres major' in RUNBOOK.md, which dumps, restores "
+                  "onto a new pgdata<major> volume and updates this file in the same change."
+              )
+              sys.exit(1)
+          PY
+
+      # The sidecars' own suites, on the Python their images run.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Sidecar tests
+        run: |
+          for d in games/palworld/pal-waker games/minecraft/offline-placeholder egress-guard egress-exporter; do
+            echo "testing $d"
+            (cd "$d" && uvx --python 3.15 --with pytest-asyncio==1.4.0 pytest@9.1.1 -q -p no:cacheprovider)
+          done

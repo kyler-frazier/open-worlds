@@ -1,0 +1,22 @@
+# BEGIN DOCKER-USER (open-worlds)
+# Docker-published ports and container egress bypass ufw; restrict them here.
+# The edge port answers only the outer reverse proxy.
+# Nothing on the games network opens a connection to a private network: each
+# world's guard already refuses them, and this holds if a guard does not. DNS
+# is the one exception: Docker forwards the platform services' lookups to the
+# host's resolver from inside their namespace.
+*filter
+:DOCKER-USER - [0:0]
+:OW-GAMES-PRIVATE - [0:0]
+-A DOCKER-USER -i ${HOST_IFACE} -p tcp -m conntrack --ctorigdstport ${EDGE_PORT} --ctdir ORIGINAL ! -s ${EDGE_ALLOW_FROM} -j DROP
+-A DOCKER-USER -s ${GAMES_SUBNET} -m conntrack --ctdir ORIGINAL -j OW-GAMES-PRIVATE
+-A OW-GAMES-PRIVATE -d ${GAMES_SUBNET} -j RETURN
+-A OW-GAMES-PRIVATE -p udp --dport 53 -j RETURN
+-A OW-GAMES-PRIVATE -p tcp --dport 53 -j RETURN
+-A OW-GAMES-PRIVATE -d 10.0.0.0/8 -j REJECT --reject-with icmp-admin-prohibited
+-A OW-GAMES-PRIVATE -d 100.64.0.0/10 -j REJECT --reject-with icmp-admin-prohibited
+-A OW-GAMES-PRIVATE -d 169.254.0.0/16 -j REJECT --reject-with icmp-admin-prohibited
+-A OW-GAMES-PRIVATE -d 172.16.0.0/12 -j REJECT --reject-with icmp-admin-prohibited
+-A OW-GAMES-PRIVATE -d 192.168.0.0/16 -j REJECT --reject-with icmp-admin-prohibited
+COMMIT
+# END DOCKER-USER (open-worlds)

@@ -1,0 +1,13 @@
+apiVersion: 1
+
+# One destination for everything. There is one operator, so splitting by
+# severity would only add a place for an alert to be routed into silence.
+policies:
+  - orgId: 1
+    receiver: platform-discord
+    group_by: ["alertname"]
+    group_wait: 30s
+    group_interval: 5m
+    # Quiet enough not to train you to ignore it; often enough that a problem
+    # left unattended keeps saying so.
+    repeat_interval: 12h

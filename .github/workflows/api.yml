@@ -1,0 +1,59 @@
+# Lint, format and tests for api/, including the cross-check against the
+# egress policy in deploy/.
+name: api
+
+# Every push and PR, with no path filter: the job is a required check, and a
+# required check that never runs would block every PR that skips it.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: api
+
+jobs:
+  check:
+    name: API
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned by SHA rather than tag, for the same reason the images are:
+      # a tag is a moving pointer, and an action runs with access to the repo.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: api/uv.lock
+
+      # --frozen makes a stale uv.lock a CI failure rather than a silent
+      # resolve to something the lockfile does not describe.
+      - name: Install
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format
+        run: uv run ruff format --check .
+
+      # Route tests start a throwaway Postgres with the runner's Docker, and
+      # the guard-policy test reads ../deploy, so nothing here is skipped.
+      - name: Types
+        run: uv run mypy
+
+      - name: Dead code
+        run: uv run vulture
+
+      - name: Tests
+        run: uv run pytest

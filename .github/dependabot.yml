@@ -1,0 +1,99 @@
+# Minor and patch bumps arrive as one PR per ecosystem: separate PRs conflict
+# on the shared lockfile, and splitting pairs that must match (react and
+# react-dom) leaves main broken between merges. Major bumps stay separate so
+# each gets its own look. Commit subjects follow Conventional Commits.
+version: 2
+updates:
+  # api/: Python dependencies from uv.lock, and the Dockerfile's base image.
+  - package-ecosystem: "uv"
+    directory: "/api"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "docker"
+    directory: "/api"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # web/: npm dependencies, and the Dockerfile's base images.
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "docker"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # deploy/: third-party images pinned by digest in docker-compose.yml and
+  # each game's games/<game>/compose.yml. A pinned digest never picks up a fix
+  # on its own, so without this they quietly go stale.
+  - package-ecosystem: "docker-compose"
+    directories: ["/deploy", "/deploy/games/*"]
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # deploy/: the base images of the services built here, pinned by digest
+  # like everything else.
+  - package-ecosystem: "docker"
+    directories:
+      - "/deploy/dns-observer"
+      - "/deploy/egress-guard"
+      - "/deploy/egress-exporter"
+      - "/deploy/games/*/*"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # The workflows' actions are pinned by SHA, which nothing else updates.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]

@@ -1,0 +1,44 @@
+# Outer TLS terminator. The stack's `edge` speaks plain HTTP and does the
+# app-level routing; this owns the certificate and nothing else.
+#
+# Caddy is here rather than nginx+certbot because the certificate lifecycle is
+# the whole job: it obtains and renews via ACME on its own, with no cron, no
+# renewal hook and no separate state to back up beyond one volume.
+{
+	email {$ACME_EMAIL}
+	# Staging issues untrusted certs but has generous rate limits. Use it while
+	# DNS is still moving -- Let's Encrypt's production limit is 5 failures per
+	# account per hostname per hour, and a mispointed A record burns them fast.
+	{$ACME_CA_DIRECTIVE}
+}
+
+{$PUBLIC_DOMAIN} {
+	# HSTS belongs on whatever owns TLS, which is this. Every other browser
+	# hardening header (CSP, nosniff, frame denial, referrer, permissions) is
+	# set by the edge so it travels with the stack rather than living here.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	reverse_proxy edge:80 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-For {remote_host}
+		header_up Host {host}
+
+		# A Palworld stop can take the full 300s graceful window, and the edge
+		# already allows that long. A shorter timeout here would turn a slow
+		# stop into a 504 while the stop carried on regardless.
+		transport http {
+			read_timeout 330s
+			write_timeout 330s
+		}
+	}
+
+	# World imports are whole server archives. Matches the edge's 2g.
+	request_body {
+		max_size 2GB
+	}
+
+	log {
+		output stderr
+		format console
+	}
+}

@@ -1,0 +1,248 @@
+apiVersion: 1
+
+# Removing a rule from the `groups` below does NOT remove it from Grafana --
+# file provisioning adds and updates, but never deletes. To retire one, list
+# its uid under a top-level `deleteRules:` (see RUNBOOK "Changing or retiring
+# an alert").
+
+# Each alert covers a failure nothing in the UI reports: a crashed world, a
+# failed job, a disk about to fill, a service or observer gone quiet. All ask
+# "has it happened recently", not "is a rate elevated": at this size the right
+# threshold for a world crashing is one.
+groups:
+  - orgId: 1
+    name: platform
+    folder: Platform
+    interval: 1m
+    rules:
+      - uid: world-unexpected-exit
+        title: A world exited unexpectedly
+        condition: fired
+        for: 0m
+        # A counter nobody has incremented does not exist yet, and that means
+        # nothing has failed -- the healthy state, not an alert. Service
+        # absence and an unreachable VictoriaMetrics are the scrape alert's.
+        noDataState: OK
+        execErrState: OK
+        annotations:
+          summary: "A world container crashed in the last 15m."
+          description: >-
+            A managed container exited with a code that is not a clean
+            shutdown (a crash or an OOM kill), or a Palworld world exited
+            without the platform asking it to. Palworld's image exits 0 even
+            after a segfault, so for Palworld the second signal is the only
+            one. A planned host shutdown (scripts/graceful-shutdown.sh) also
+            counts once per Palworld world that was running. Check `docker
+            logs` for the container.
+        labels:
+          severity: warning
+        data:
+          - refId: exits
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: victoriametrics
+            model:
+              refId: exits
+              expr: increase(pal_world_unexpected_exits_total[15m])
+              instant: true
+          - refId: fired
+            datasourceUid: __expr__
+            model:
+              refId: fired
+              type: threshold
+              expression: exits
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: job-failed
+        title: A worker job failed
+        condition: fired
+        for: 0m
+        # A counter nobody has incremented does not exist yet, and that means
+        # nothing has failed -- the healthy state, not an alert. Service
+        # absence and an unreachable VictoriaMetrics are the scrape alert's.
+        noDataState: OK
+        execErrState: OK
+        annotations:
+          summary: "A backup, import or content job failed in the last 30m."
+          description: >-
+            A job finished with result=error. A failing auto-backup is the case
+            worth catching early: Drive access can be revoked without anything
+            in the UI saying so, and the schedule then fails quietly.
+        labels:
+          severity: warning
+        data:
+          - refId: failures
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: victoriametrics
+            model:
+              refId: failures
+              expr: sum(increase(pal_jobs_processed_total{result="error"}[30m]))
+              instant: true
+          - refId: fired
+            datasourceUid: __expr__
+            model:
+              refId: fired
+              type: threshold
+              expression: failures
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: backup-disk-low
+        title: Free disk for backups is low
+        condition: fired
+        # Sustained, not a momentary dip while an archive is staged.
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        annotations:
+          summary: "Under 10 GB free where backups are staged."
+          description: >-
+            Backups stage an archive on disk before uploading, and refuse to run
+            below the configured floor. Worlds write to the same filesystem, so
+            this fills quietly and then everything stops at once.
+        labels:
+          severity: warning
+        data:
+          - refId: free
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: victoriametrics
+            model:
+              refId: free
+              # Scoped to the worker, the only process that sets the gauge;
+              # every other importer exports its initial 0, which min() would
+              # read as a full disk.
+              expr: min(pal_backup_staging_free_bytes{job="worker"})
+              instant: true
+          - refId: fired
+            datasourceUid: __expr__
+            model:
+              refId: fired
+              type: threshold
+              expression: free
+              conditions:
+                - evaluator: { type: lt, params: [10737418240] }
+
+      # Absence is detected here, not on business metrics, where "nothing
+      # failed" and "nothing is reporting" would look the same.
+      - uid: service-not-scraped
+        title: A platform service stopped reporting
+        condition: fired
+        # `for` does not apply to NoData, and a restarted service's `up` series
+        # vanishes, so the query returns 0 for a missing target: absence is then
+        # an ordinary breach that must persist for 5 minutes.
+        #
+        # The only rule that alerts on a failed query. When VictoriaMetrics is
+        # down every rule's query fails, and the others reporting that as a
+        # crash or a failed job is wrong (it happens on every restart of
+        # VictoriaMetrics). Here it is true, and `for` keeps a restart quiet.
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: "A control-plane service has not been scraped for 5 minutes."
+          description: >-
+            The service is down, wedged, or unreachable from VictoriaMetrics,
+            or VictoriaMetrics itself is not answering Grafana. While this is firing the other alerts cannot be trusted: a worker
+            that is not running also reports no failures.
+        labels:
+          severity: critical
+        data:
+          - refId: up
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: victoriametrics
+            model:
+              refId: up
+              # `or on() vector(0)`: when every target is missing the inner
+              # query returns nothing, and "nothing" must read as down rather
+              # than as no-opinion.
+              expr: min(up{job=~"api|worker|world-manager|internal-api"}) or on() vector(0)
+              instant: true
+          - refId: fired
+            datasourceUid: __expr__
+            model:
+              refId: fired
+              type: threshold
+              expression: up
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      # --- Egress.
+      #
+      # Something a guard refused that no DENY entry explains for the world's
+      # game: a name on no list, an allowed name on a new port or protocol, a
+      # UDP flow, a connection naming no site. Most likely a game needing
+      # something new, which fails quietly with blocking on. The uid predates
+      # the rule covering more than names; keeping it updates the rule in place.
+      #
+      # delta, not increase: the gauge drops when an entry is added to DENY.
+      - uid: egress-new-refused-name
+        title: An egress guard refused something no list explains
+        condition: fired
+        for: 0m
+        noDataState: OK
+        execErrState: OK
+        annotations:
+          summary: "An egress guard refused a connection or lookup that is on no list."
+          description: >-
+            A world's guard refused (or, with blocking off, would have refused)
+            a lookup, connection or packet that no entry covers for its game,
+            variant and stage (install or play). If a game or mod needs it, the
+            world is missing something. On the host, run
+            scripts/egress-refusals.sh: it lists each refusal with the world,
+            stage, layer, reason, protocol and port, and a ready-to-paste entry
+            for that stage's list in games/<game>/egress.py. Write its reason,
+            rebuild the guard, and sleep/wake the world.
+        labels:
+          severity: warning
+        data:
+          - refId: new
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: victoriametrics
+            model:
+              refId: new
+              expr: delta(egress_refused_unlisted[5m]) or on() vector(0)
+              instant: true
+          - refId: fired
+            datasourceUid: __expr__
+            model:
+              refId: fired
+              type: threshold
+              expression: new
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      # If the dns-observer dies, guards fall back to 1.1.1.1 and their
+      # refusals stop being reported, so the alert above goes quiet. A report
+      # the exporter cannot read counts as stale, and so does no series at all
+      # (the exporter itself down): silence must not read as healthy.
+      - uid: dns-observer-stale
+        title: DNS observer has stopped reporting
+        condition: fired
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        annotations:
+          summary: "The dns-observer has not written its report recently."
+          description: >-
+            The dns-observer is dead or wedged. Worlds still resolve (their
+            guards fall back to 1.1.1.1), but their refusals are no longer
+            reported. Check docker compose ps dns-observer egress-exporter and
+            restart whichever is down.
+        labels:
+          severity: warning
+        data:
+          - refId: stale
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: victoriametrics
+            model:
+              refId: stale
+              expr: max(dns_report_stale) or on() vector(1)
+              instant: true
+          - refId: fired
+            datasourceUid: __expr__
+            model:
+              refId: fired
+              type: threshold
+              expression: stale
+              conditions:
+                - evaluator: { type: gt, params: [0] }

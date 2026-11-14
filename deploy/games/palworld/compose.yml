@@ -1,0 +1,48 @@
+# Palworld's edge: pal-waker, relaying one UDP port per world.
+#
+# Included by ../../docker-compose.yml behind the "palworld" profile, which
+# must be on for the game to be offered. UDP
+# PLATFORM_GAME_PORT_RANGE_START-_END on the host, one port per world. Networks
+# are the main file's; build contexts are relative to this file.
+
+services:
+  # pal-waker: owns the game-port range, relaying each port to its world and
+  # waking a sleeping one when a player connects. It has no Docker access; it
+  # asks internal-api.
+  #
+  # With Docker's userland proxy, a range publish costs one docker-proxy process
+  # per port, hence the small default range; `"userland-proxy": false` in
+  # /etc/docker/daemon.json removes that cost.
+  pal-waker:
+    profiles: ["palworld"]
+    build:
+      context: ./pal-waker
+      dockerfile: Dockerfile
+    image: pal-waker:latest
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 128m
+    pids_limit: 64
+    environment:
+      API_BASE: http://internal-api:8000/api/internal
+      # `:?`: never run without the secret.
+      INTERNAL_SECRET: ${PLATFORM_INTERNAL_SECRET:?set PLATFORM_INTERNAL_SECRET in .env}
+      CONTAINER_PREFIX: ${PLATFORM_CONTAINER_NAME_PREFIX:-game-world-}
+      GAME_CONTAINER_PORT: 8211
+      IDLE_SECONDS: ${PLATFORM_AUTO_STOP_AFTER_SECONDS:-600}
+      WAKE_GRACE_SECONDS: ${PLATFORM_WAKE_GRACE_SECONDS:-180}
+      # A wake needs several datagrams from one source within the window, and a
+      # port will not wake its world twice within the cooldown.
+      WAKE_MIN_DATAGRAMS: ${PLATFORM_WAKE_MIN_DATAGRAMS:-3}
+      WAKE_WINDOW_SECONDS: ${PLATFORM_WAKE_WINDOW_SECONDS:-10}
+      WAKE_COOLDOWN_SECONDS: ${PLATFORM_WAKE_COOLDOWN_SECONDS:-300}
+    ports:
+      # The range the API allocates from.
+      - "${PLATFORM_GAME_PORT_RANGE_START:-8211}-${PLATFORM_GAME_PORT_RANGE_END:-8220}:${PLATFORM_GAME_PORT_RANGE_START:-8211}-${PLATFORM_GAME_PORT_RANGE_END:-8220}/udp"
+    depends_on:
+      - internal-api
+    networks:
+      - games
