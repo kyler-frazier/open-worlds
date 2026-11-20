@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- nginx (edge and web) is 1.31.9, fixing CVE-2026-123007, CVE-2026-123633 and
+  the other flaws in the same advisory.
+
 ## [0.1.0] - 2026-11-14
 
 ### Added
