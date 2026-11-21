@@ -1,5 +1,5 @@
 # Build the SPA, then serve the static bundle with nginx.
-FROM node:26-alpine@sha256:ce8c3a386c7649c1f9a38d29eb9f6b0c29e70707eb50f208643a75b3f763b60f AS build
+FROM node:26-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 # Reproducible: install exactly the committed lockfile, fail if it disagrees
