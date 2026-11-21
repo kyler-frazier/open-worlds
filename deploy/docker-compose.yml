@@ -511,7 +511,7 @@ services:
   # --- Monitoring (always on) ---
   # VictoriaMetrics scrapes each service's /metrics over the private networks.
   victoriametrics:
-    image: victoriametrics/victoria-metrics:v1.155.0@sha256:f60dc268b54ecf87f6e09d740c2b732838aa9193090cc741417c9f6386a130df
+    image: victoriametrics/victoria-metrics:v1.156.0@sha256:da8a90ac0912f16589be2b96a6441a2fca4bca415c83783d972d92e3b5b66970
     restart: unless-stopped
     <<: *hardened
     mem_limit: 1g
@@ -531,7 +531,7 @@ services:
 
   cadvisor:
     # Published on ghcr.io from v0.56; gcr.io stopped at v0.55.1.
-    image: ghcr.io/google/cadvisor:v0.60.6@sha256:b8e7d1093144fd088f425ff003d75a4aa405de075db78dae3bc563730b1bd07a
+    image: ghcr.io/google/cadvisor:v0.61.1@sha256:4929b70e82079d001d0028b85d6a4dd25ad4666b719455c9542b983489963916
     restart: unless-stopped
     # Tuned down so an idle host can reach deep CPU sleep states: every 30s,
     # Docker containers only, only the metric families the dashboards read.
@@ -557,7 +557,7 @@ services:
       - monitoring
 
   grafana:
-    image: grafana/grafana:13.3.0@sha256:488984b716c0862639f91a698adbe2862677a5a07bad42da5f03f3030883b205
+    image: grafana/grafana:13.3.1@sha256:0615ec4fbd4072004b7d86b46ded63013a74b7d6eb1119273dd89e8fa25c13cf
     restart: unless-stopped
     <<: *hardened
     mem_limit: 768m
